@@ -17,18 +17,6 @@ local MAX_WIRE_LEN = 16
 
 local DASH_DIRS: { [string]: Types.DashDir } = { F = "F", B = "B", L = "L", R = "R" }
 
-local DASH_FROM: { [Types.MoveState]: true } = {
-	Idle = true,
-	Walk = true,
-	Run = true,
-	CrouchIdle = true,
-	CrouchWalk = true,
-	Jump = true,
-	DoubleJump = true,
-	SlideJump = true,
-	Fall = true,
-}
-
 local MovementService = {}
 
 -- what the client may send, Idle and CrouchIdle ride on Walk and CrouchWalk
@@ -181,7 +169,7 @@ local function onDash(plr: Player, dir: unknown)
 	local dash = state.dash
 	if
 		not StateService.canDash(char)
-		or not DASH_FROM[StateService.current(char)]
+		or not MoveDefs[StateService.current(char)].dash
 		or now < dash.dashCooldownUntil - Config.COOLDOWN_SLACK
 	then
 		deny(plr, "Dash")

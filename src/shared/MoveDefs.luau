@@ -12,6 +12,7 @@ type Row = {
 	duration: number?,
 	after: Types.MoveState?,
 	cooldown: number?,
+	dash: true?,
 	to: { Target },
 }
 
@@ -22,16 +23,16 @@ local CROUCH_TO: { Target } = { "Walk", "Run", "Jump", "Fall" }
 
 -- rows use wire names, Idle and CrouchIdle get filled in below
 local rows: { [Types.MoveState]: Row } = {
-	Idle = { group = "Grounded", wire = "Walk", to = WALK_TO },
-	Walk = { group = "Grounded", to = WALK_TO },
-	Run = { group = "Grounded", to = { "Walk", "Slide", "Jump", "Fall", "VaultLow" } },
+	Idle = { group = "Grounded", wire = "Walk", dash = true, to = WALK_TO },
+	Walk = { group = "Grounded", dash = true, to = WALK_TO },
+	Run = { group = "Grounded", dash = true, to = { "Walk", "Slide", "Jump", "Fall", "VaultLow" } },
 	Slide = {
 		group = "Grounded",
 		cooldown = Config.SLIDE_COOLDOWN,
 		to = { "Run", "Walk", "CrouchWalk", "SlideJump", "Fall" },
 	},
-	CrouchIdle = { group = "Grounded", wire = "CrouchWalk", to = CROUCH_TO },
-	CrouchWalk = { group = "Grounded", to = CROUCH_TO },
+	CrouchIdle = { group = "Grounded", wire = "CrouchWalk", dash = true, to = CROUCH_TO },
+	CrouchWalk = { group = "Grounded", dash = true, to = CROUCH_TO },
 	VaultLow = {
 		group = "Grounded",
 		duration = Config.VAULT_LOW_TIME,
@@ -40,10 +41,10 @@ local rows: { [Types.MoveState]: Row } = {
 		to = { "Run", "Walk", "Fall" },
 	},
 
-	Jump = { group = "Airborne", to = { "DoubleJump", "Fall", "WallRun", "WallCling", "Land" } },
-	DoubleJump = { group = "Airborne", to = { "Fall", "WallRun", "WallCling", "Land" } },
-	SlideJump = { group = "Airborne", to = { "DoubleJump", "Fall", "WallRun", "WallCling", "Land" } },
-	Fall = { group = "Airborne", to = { "DoubleJump", "WallRun", "WallCling", "Land" } },
+	Jump = { group = "Airborne", dash = true, to = { "DoubleJump", "Fall", "WallRun", "WallCling", "Land" } },
+	DoubleJump = { group = "Airborne", dash = true, to = { "Fall", "WallRun", "WallCling", "Land" } },
+	SlideJump = { group = "Airborne", dash = true, to = { "DoubleJump", "Fall", "WallRun", "WallCling", "Land" } },
+	Fall = { group = "Airborne", dash = true, to = { "DoubleJump", "WallRun", "WallCling", "Land" } },
 
 	WallRun = {
 		group = "Wall",
@@ -121,6 +122,7 @@ for state: Types.MoveState, row in rows do
 		cooldown = row.cooldown or 0,
 		duration = row.duration,
 		after = row.after,
+		dash = row.dash == true,
 		to = to,
 	}
 	MoveDefs[state] = def

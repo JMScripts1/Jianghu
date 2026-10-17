@@ -32,6 +32,7 @@ export type MoveDef = {
 	cooldown: number,
 	duration: number?,
 	after: MoveState?,
+	dash: boolean,
 	to: { [MoveState]: true },
 }
 
