@@ -3,12 +3,16 @@
 -- MIT licensed, see LICENSE. Feel free to remove this header.
 
 return table.freeze({
+	DEBUG = true,
+
 	WALK_SPEED = 14,
 	CROUCH_SPEED = 7,
 	RUN_SPEED = 22,
 	MOMENTUM_MAX = 44,
 
 	RUN_BUILD = 1.5,
+	-- MoveDirection against the flat look, at or above this counts as running straight
+	RUN_STRAIGHT = 0.95,
 	MOMENTUM_GROUND_DECAY = 30,
 	MOMENTUM_AIR_DECAY = 1.5,
 	LAND_GRACE = 0.15,
@@ -67,6 +71,9 @@ return table.freeze({
 	VAULT_INSET = 0.5,
 	TOP_MIN_NORMAL_Y = 0.8,
 	HEADROOM_REACH = 3,
+	-- MoveDirection against the obstacle's face, at or above this counts as moving into it
+	VAULT_TOWARD = 0.5,
+	MOVER_RESPONSIVENESS = 200,
 
 	DASH_SPEED = 55,
 	DASH_TIME = 0.2,
