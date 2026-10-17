@@ -101,24 +101,25 @@ local function onMove(plr: Player, wire: unknown)
 	end
 
 	local landing = def.group == "Grounded" and from.group ~= "Grounded"
+	local slack =
+		math.min(Config.PROBE_SLACK + root.AssemblyLinearVelocity.Magnitude * Config.PROBE_LAG, Config.PROBE_SLACK_MAX)
 	local wallHit: Types.WallHit? = nil
 	local ok = true
 	if landing then
-		ok = Probes.ground(root, Config.PROBE_SLACK) ~= nil
+		ok = Probes.ground(root, slack) ~= nil
 	elseif to == "Jump" or to == "SlideJump" then
-		ok = now - move.groundedAt <= Config.GROUND_GRACE or Probes.ground(root, Config.PROBE_SLACK) ~= nil
+		ok = now - move.groundedAt <= Config.GROUND_GRACE or Probes.ground(root, slack) ~= nil
 	elseif to == "DoubleJump" then
 		ok = move.airJumps < Config.MAX_AIR_JUMPS
 	elseif to == "WallRun" or to == "WallCling" then
-		-- the wall run speed rule is the client's, the server can't know momentum
-		wallHit = Probes.wall(root, math.huge, Config.PROBE_SLACK)
-		ok = wallHit ~= nil
-			and wallHit.kind == (if to == "WallRun" then "Run" else "Cling")
-			and wallHit.part ~= move.lastWallPart
+		-- any kind of wall will do, near the facing split the server's older view can read it the other way,
+		-- and the wall run speed rule is the client's since the server can't know momentum
+		wallHit = Probes.wall(root, math.huge, slack)
+		ok = wallHit ~= nil and wallHit.part ~= move.lastWallPart
 	elseif to == "VaultLow" then
-		ok = Probes.ground(root, Config.PROBE_SLACK) ~= nil and Probes.vaultLow(root, Config.PROBE_SLACK) ~= nil
+		ok = Probes.ground(root, slack) ~= nil and Probes.vaultLow(root, slack) ~= nil
 	elseif to == "VaultMid" then
-		ok = Probes.vaultMid(root, Config.PROBE_SLACK) ~= nil
+		ok = Probes.vaultMid(root, slack) ~= nil
 	end
 	if not ok then
 		deny(plr, to)

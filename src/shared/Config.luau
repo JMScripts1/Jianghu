@@ -100,6 +100,9 @@ return table.freeze({
 	SPAWN_EXEMPT = 1.5,
 	-- server side give, it sees every character slightly in the past
 	PROBE_SLACK = 3,
+	-- the server's probes also reach as far as the character moves in this many seconds
+	PROBE_LAG = 0.15,
+	PROBE_SLACK_MAX = 12,
 	COOLDOWN_SLACK = 0.1,
 	-- how long after the server last saw ground a Jump still counts, COYOTE plus a sample gap and ping
 	GROUND_GRACE = 0.5,
