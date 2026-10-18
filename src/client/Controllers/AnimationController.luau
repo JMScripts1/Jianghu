@@ -48,6 +48,10 @@ function AnimationController.state(state: Types.MoveState, side: ("Left" | "Righ
 	playing = tracks[name]
 	if playing then
 		playing:Play(Config.ANIM_FADE)
+		-- the vault's path is keyed to the animation, so the animation is stretched to the vault's length
+		if name == "VaultMid" and playing.Length > 0 then
+			playing:AdjustSpeed(playing.Length / Config.VAULT_MID_TIME)
+		end
 	end
 end
 

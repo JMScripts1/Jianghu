@@ -66,7 +66,11 @@ return table.freeze({
 	LEDGE_MIN_UP = 1,
 	LEDGE_MAX_UP = 5,
 	LEDGE_DEPTH = 1.5,
-	VAULT_MID_TIME = 0.8,
+	-- the VaultMid animation's length, it plants its hands at the halfway point
+	VAULT_MID_TIME = 0.4,
+	-- where the root sits when the hands land, above the lip and out from the wall face
+	LEDGE_PLANT_UP = 0.5,
+	LEDGE_PLANT_OUT = 0.5,
 	-- how far past the obstacle's face the VaultLow top ray drops
 	VAULT_INSET = 0.5,
 	TOP_MIN_NORMAL_Y = 0.8,

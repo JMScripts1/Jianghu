@@ -31,7 +31,11 @@ function Vault.enter(ctx: Context.Context)
 		points = { start, over, over + forward * Config.HEADROOM_REACH }
 	else
 		ctx.momentum = Config.WALK_SPEED
-		points = { start, Vector3.new(start.X, over.Y, start.Z), over }
+		local out = Vector3.new(hit.normal.X, 0, hit.normal.Z).Unit
+		local edge = hit.point + out * Config.LEDGE_DEPTH
+		points = { start, edge + out * Config.LEDGE_PLANT_OUT + Vector3.yAxis * Config.LEDGE_PLANT_UP, over }
+		-- square to the ledge, not wherever the cling left us looking
+		forward = -out
 	end
 
 	for _, part in ctx.char:GetChildren() do
@@ -66,7 +70,15 @@ function Vault.update(ctx: Context.Context, _: number): Types.MoveState?
 	end
 
 	local align = mover :: AlignPosition
-	align.Position = if t < 0.5 then points[1]:Lerp(points[2], t * 2) else points[2]:Lerp(points[3], t * 2 - 1)
+	local start, mid, finish = points[1], points[2], points[3]
+	if ctx.state == "VaultLow" then
+		align.Position = if t < 0.5 then start:Lerp(mid, t * 2) else mid:Lerp(finish, t * 2 - 1)
+	else
+		-- the VaultMid animation plants its hands on the lip halfway through, so the curve passes there at the midpoint
+		local bend = mid * 2 - (start + finish) / 2
+		local u = 1 - t
+		align.Position = start * (u * u) + bend * (2 * t * u) + finish * (t * t)
+	end
 	return nil
 end
 
