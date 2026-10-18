@@ -24,6 +24,30 @@ export type MoveGroup = "Grounded" | "Airborne" | "Wall"
 
 export type DashDir = "F" | "B" | "L" | "R"
 
+-- WallRun plays one side, R6 animations can't be mirrored at runtime
+export type AnimName =
+	"Idle"
+	| "Walk"
+	| "Run"
+	| "Slide"
+	| "CrouchIdle"
+	| "CrouchWalk"
+	| "VaultLow"
+	| "Jump"
+	| "DoubleJump"
+	| "SlideJump"
+	| "Fall"
+	| "WallRunLeft"
+	| "WallRunRight"
+	| "WallLeap"
+	| "WallCling"
+	| "WallBoost"
+	| "VaultMid"
+	| "DashF"
+	| "DashB"
+	| "DashL"
+	| "DashR"
+
 export type MoveDef = {
 	group: MoveGroup,
 	wire: MoveState,

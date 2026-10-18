@@ -10,6 +10,7 @@ local MoveDefs = require(ReplicatedStorage.Shared.MoveDefs)
 local Probes = require(ReplicatedStorage.Shared.Probes)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local Types = require(ReplicatedStorage.Shared.Types)
+local AnimationController = require(script.Parent.AnimationController)
 local Context = require(script.Parent.Movement.Context)
 local Dash = require(script.Parent.Movement.Dash)
 local Air = require(script.Parent.Movement.States.Air)
@@ -80,6 +81,7 @@ local function switch(ctx: Context.Context, to: Types.MoveState)
 	ctx.endsAt = if def.duration then now + def.duration else nil
 	ctx.cooldownUntil[to] = now + def.cooldown
 	MODULES[to].enter(ctx)
+	AnimationController.state(to, if to == "WallRun" and ctx.wallHit then ctx.wallHit.side else nil)
 
 	if Config.DEBUG then
 		print("move", from, to)
@@ -165,6 +167,7 @@ local function onDash(ctx: Context.Context)
 
 	local dir: Types.DashDir = Dash.direction(ctx)
 	Dash.start(ctx, dir)
+	AnimationController.dash(dir)
 	ctx.dashReadyAt = now + Config.DASH_COOLDOWN
 	Remotes.Dash:FireServer(dir)
 end
@@ -196,6 +199,8 @@ local function onCharacter(char: Model)
 	active = ctx
 	lastSent = "Walk"
 	MODULES[ctx.state].enter(ctx)
+	AnimationController.load(ctx)
+	AnimationController.state(ctx.state)
 
 	ctx.trove:Connect(RunService.PreSimulation, function(dt: number)
 		step(ctx, dt)

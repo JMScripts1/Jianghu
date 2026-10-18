@@ -74,6 +74,7 @@ return table.freeze({
 	-- MoveDirection against the obstacle's face, at or above this counts as moving into it
 	VAULT_TOWARD = 0.5,
 	MOVER_RESPONSIVENESS = 200,
+	ANIM_FADE = 0.1,
 
 	DASH_SPEED = 55,
 	DASH_TIME = 0.2,

@@ -29,6 +29,7 @@ export type Context = {
 	char: Model,
 	hum: Humanoid,
 	root: BasePart,
+	animator: Animator,
 	attachment: Attachment,
 	velocity: LinearVelocity,
 	align: AlignOrientation,
@@ -64,6 +65,8 @@ local Context = {}
 function Context.new(char: Model, input: Input): Context
 	local hum = char:WaitForChild("Humanoid") :: Humanoid
 	local root = char:WaitForChild("HumanoidRootPart") :: BasePart
+	-- the one the server made, so the tracks replicate to everyone else
+	local animator = hum:WaitForChild("Animator") :: Animator
 	local trove = Trove.new()
 
 	for _, state in UNUSED_STATES do
@@ -95,6 +98,7 @@ function Context.new(char: Model, input: Input): Context
 		char = char,
 		hum = hum,
 		root = root,
+		animator = animator,
 		attachment = attachment,
 		velocity = velocity,
 		align = align,
