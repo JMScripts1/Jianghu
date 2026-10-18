@@ -79,6 +79,8 @@ return table.freeze({
 	VAULT_TOWARD = 0.5,
 	MOVER_RESPONSIVENESS = 200,
 	ANIM_FADE = 0.1,
+	-- run animation speed through a running jump, back to 1 on landing
+	RUN_JUMP_ANIM_SPEED = 0.3,
 
 	DASH_SPEED = 55,
 	DASH_TIME = 0.2,

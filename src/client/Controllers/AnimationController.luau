@@ -42,6 +42,12 @@ function AnimationController.state(state: Types.MoveState, side: ("Left" | "Righ
 	end
 	current = name
 
+	-- a running jump keeps the run going slowed down instead of cutting to the jump, landing in Run speeds it back up
+	if playing and playing == tracks.Run and (name == "Jump" or name == "Run") then
+		playing:AdjustSpeed(if name == "Jump" then Config.RUN_JUMP_ANIM_SPEED else 1)
+		return
+	end
+
 	if playing then
 		playing:Stop(Config.ANIM_FADE)
 	end
