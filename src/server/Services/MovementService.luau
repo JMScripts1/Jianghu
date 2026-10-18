@@ -17,6 +17,11 @@ local MAX_WIRE_LEN = 16
 
 local DASH_DIRS: { [string]: Types.DashDir } = { F = "F", B = "B", L = "L", R = "R" }
 
+-- the back dash's burst can outrun the other dashes
+local DASH_CAP = math.max(Config.DASH_SPEED, Config.BACK_DASH_SPEED * Config.BACK_DASH_BOOST)
+-- the burst comes at its animation's marker, which is never later than the end of the backstep
+local BACK_DASH_TIME = Config.BACK_DASH_TIME + Config.BACK_DASH_BOOST_TIME
+
 local MovementService = {}
 
 -- what the client may send, Idle and CrouchIdle ride on Walk and CrouchWalk
@@ -177,10 +182,10 @@ local function onDash(plr: Player, dir: unknown)
 		return
 	end
 
-	dash.dashUntil = now + Config.DASH_TIME
+	dash.dashUntil = now + if dashDir == "B" then BACK_DASH_TIME else Config.DASH_TIME
 	dash.dodgeUntil = now + Config.DODGE_TIME
 	dash.dashCooldownUntil = now + Config.DASH_COOLDOWN
-	state.speed.windowCap = math.max(state.speed.windowCap, Config.DASH_SPEED)
+	state.speed.windowCap = math.max(state.speed.windowCap, DASH_CAP)
 
 	for _, other in Players:GetPlayers() do
 		if other ~= plr then
@@ -220,7 +225,7 @@ local function sample(char: Model, root: BasePart, state: StateService.State, no
 
 	-- the next window starts at whatever is recorded now
 	local cap = MoveDefs[StateService.current(char)].cap
-	speed.windowCap = if now < state.dash.dashUntil then math.max(cap, Config.DASH_SPEED) else cap
+	speed.windowCap = if now < state.dash.dashUntil then math.max(cap, DASH_CAP) else cap
 	speed.samplePos = root.Position
 	speed.sampleAt = now
 end

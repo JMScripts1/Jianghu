@@ -86,6 +86,14 @@ return table.freeze({
 
 	DASH_SPEED = 55,
 	DASH_TIME = 0.2,
+	-- the back dash is a slow backstep, then a burst when its animation hits the Boost marker
+	BACK_DASH_SPEED = 20,
+	BACK_DASH_DRIFT = 0.8,
+	BACK_DASH_BOOST = 3,
+	-- the backstep stops here if the marker hasn't fired, so the marker has to come before it
+	BACK_DASH_TIME = 0.5,
+	BACK_DASH_BOOST_TIME = 0.2,
+	BACK_DASH_ANIM_TIME = 1,
 	DODGE_TIME = 0.15,
 	DASH_COOLDOWN = 1.2,
 	DASH_BURST = 3,

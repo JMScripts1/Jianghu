@@ -30,7 +30,7 @@ local Anims: { [Types.AnimName]: string } = {
 	WallCling = "rbxassetid://78068464202635",
 	WallBoost = "rbxassetid://136022644832167",
 	DashF = "rbxassetid://94356223480257",
-	DashB = "rbxassetid://134294238611266",
+	DashB = "rbxassetid://118683224611316",
 	DashL = "rbxassetid://77340216112314",
 	DashR = "rbxassetid://122209274211606",
 

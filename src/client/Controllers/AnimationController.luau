@@ -8,6 +8,9 @@ local Config = require(ReplicatedStorage.Shared.Config)
 local MoveDefs = require(ReplicatedStorage.Shared.MoveDefs)
 local Types = require(ReplicatedStorage.Shared.Types)
 local Context = require(script.Parent.Movement.Context)
+local Dash = require(script.Parent.Movement.Dash)
+
+local BOOST_MARKER = "Boost"
 
 -- these states last until landing but their animations are one shots, so the fall loop takes over when one runs out
 local THEN_FALL: { [string]: true } = { Jump = true, DoubleJump = true, SlideJump = true }
@@ -47,6 +50,14 @@ function AnimationController.load(ctx: Context.Context)
 				end
 			end)
 		end
+	end
+
+	-- the back dash's burst is keyed to its animation
+	local back = tracks.DashB
+	if back then
+		ctx.trove:Connect(back:GetMarkerReachedSignal(BOOST_MARKER), function()
+			Dash.boost(ctx)
+		end)
 	end
 
 	ctx.trove:Add(function()
@@ -103,6 +114,9 @@ function AnimationController.dash(dir: Types.DashDir)
 	local track = tracks[`Dash{dir}`]
 	if track then
 		track:Play(Config.ANIM_FADE)
+		if dir == "B" and track.Length > 0 then
+			track:AdjustSpeed(track.Length / Config.BACK_DASH_ANIM_TIME)
+		end
 	end
 end
 
