@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Anims = require(ReplicatedStorage.Shared.Anims)
 local Config = require(ReplicatedStorage.Shared.Config)
+local MoveDefs = require(ReplicatedStorage.Shared.MoveDefs)
 local Types = require(ReplicatedStorage.Shared.Types)
 local Context = require(script.Parent.Movement.Context)
 
@@ -12,12 +13,15 @@ local AnimationController = {}
 
 local tracks: { [string]: AnimationTrack } = {}
 local playing: AnimationTrack? = nil
+-- a one shot over the state's track, stopped by the next state change
+local overlay: AnimationTrack? = nil
 local current = ""
 
 -- once per character, an Animator has a track limit
 function AnimationController.load(ctx: Context.Context)
 	table.clear(tracks)
 	playing = nil
+	overlay = nil
 	current = ""
 
 	for name, id in Anims do
@@ -32,6 +36,7 @@ function AnimationController.load(ctx: Context.Context)
 	ctx.trove:Add(function()
 		table.clear(tracks)
 		playing = nil
+		overlay = nil
 	end)
 end
 
@@ -40,7 +45,13 @@ function AnimationController.state(state: Types.MoveState, side: ("Left" | "Righ
 	if name == current then
 		return
 	end
+	local from = current
 	current = name
+
+	if overlay then
+		overlay:Stop(Config.ANIM_FADE)
+		overlay = nil
+	end
 
 	-- a running jump keeps the run going slowed down instead of cutting to the jump, landing in Run speeds it back up
 	if playing and playing == tracks.Run and (name == "Jump" or name == "Run") then
@@ -58,6 +69,16 @@ function AnimationController.state(state: Types.MoveState, side: ("Left" | "Righ
 		if name == "VaultMid" and playing.Length > 0 then
 			playing:AdjustSpeed(playing.Length / Config.VAULT_MID_TIME)
 		end
+	end
+
+	-- the slide's intro and exit aren't states, they play over the loop and whatever grounded state comes after it
+	if name == "Slide" then
+		overlay = tracks.SlideIntro
+	elseif from == "Slide" and MoveDefs[state].group == "Grounded" then
+		overlay = tracks.SlideExit
+	end
+	if overlay then
+		overlay:Play(Config.ANIM_FADE)
 	end
 end
 

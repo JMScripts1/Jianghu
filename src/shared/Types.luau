@@ -30,6 +30,8 @@ export type AnimName =
 	| "Walk"
 	| "Run"
 	| "Slide"
+	| "SlideIntro"
+	| "SlideExit"
 	| "CrouchIdle"
 	| "CrouchWalk"
 	| "VaultLow"

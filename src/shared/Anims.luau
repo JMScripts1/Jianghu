@@ -33,10 +33,16 @@ local Anims: { [Types.AnimName]: string } = {
 	DashB = "rbxassetid://134294238611266",
 	DashL = "rbxassetid://77340216112314",
 	DashR = "rbxassetid://122209274211606",
+
+	-- Action2, one shots over the Slide loop and whatever the slide ends in
+	SlideIntro = "rbxassetid://116003744485924",
+	SlideExit = "rbxassetid://88690341011809",
 }
 
 -- the old solver doesn't check the keys above, so a typo would just never play
 local slots: { [string]: true } = {
+	SlideIntro = true,
+	SlideExit = true,
 	WallRunLeft = true,
 	WallRunRight = true,
 	WallLeapLeft = true,
