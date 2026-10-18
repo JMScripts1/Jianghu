@@ -9,6 +9,10 @@ local Probes = require(ReplicatedStorage.Shared.Probes)
 local Types = require(ReplicatedStorage.Shared.Types)
 local Context = require(script.Parent.Parent.Context)
 
+-- still going up faster than this means the ground under us is the one we just left. a humanoid at rest
+-- never reads exactly 0, so stepping up onto a ledge without falling first would never land against 0
+local RISING = 1
+
 local Air = {}
 
 -- the carried direction, steering turns it but never adds speed
@@ -16,7 +20,7 @@ local airDir = Vector3.zero
 
 -- whichever grounded state input and momentum call for, nil while still in the air
 function Air.landing(ctx: Context.Context): Types.MoveState?
-	if ctx.root.AssemblyLinearVelocity.Y > 0 or not Probes.ground(ctx.root) then
+	if ctx.root.AssemblyLinearVelocity.Y > RISING or not Probes.ground(ctx.root) then
 		return nil
 	end
 
