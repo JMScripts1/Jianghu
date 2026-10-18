@@ -26,16 +26,16 @@ return table.freeze({
 	TIER_HYSTERESIS = 2,
 
 	JUMP_POWER = 50,
-	DOUBLE_JUMP_POWER = 45,
+	DOUBLE_JUMP_POWER = 80,
 	MAX_AIR_JUMPS = 1,
 	COYOTE = 0.15,
 
 	SLIDE_MIN_SPEED = 18,
 	SLIDE_BOOST = 1.1,
-	SLIDE_DECAY = 8,
+	SLIDE_DECAY = 14,
 	SLIDE_END_SPEED = 10,
 	SLIDE_COOLDOWN = 0.6,
-	SLIDE_JUMP_GAIN = 4,
+	SLIDE_JUMP_GAIN = 20,
 	-- degrees per second the slide turns toward the camera
 	SLIDE_TURN_RATE = 90,
 
@@ -50,11 +50,11 @@ return table.freeze({
 	WALLRUN_DECAY = 2,
 	CLING_MAX_TIME = 3,
 	CLING_SLIDE_SPEED = 2,
-	LEAP_OUT = 28,
-	LEAP_UP = 40,
+	LEAP_OUT = 60,
+	LEAP_UP = 60,
 	LEAP_TIME = 0.35,
 	LEAP_GAIN = 6,
-	BOOST_UP = 55,
+	BOOST_UP = 100,
 	BOOST_TIME = 0.4,
 
 	VAULT_REACH = 2.5,
