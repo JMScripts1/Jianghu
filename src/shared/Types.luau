@@ -24,7 +24,7 @@ export type MoveGroup = "Grounded" | "Airborne" | "Wall"
 
 export type DashDir = "F" | "B" | "L" | "R"
 
--- WallRun plays one side, R6 animations can't be mirrored at runtime
+-- WallRun and WallLeap play one side, R6 animations can't be mirrored at runtime
 export type AnimName =
 	"Idle"
 	| "Walk"
@@ -39,7 +39,8 @@ export type AnimName =
 	| "Fall"
 	| "WallRunLeft"
 	| "WallRunRight"
-	| "WallLeap"
+	| "WallLeapLeft"
+	| "WallLeapRight"
 	| "WallCling"
 	| "WallBoost"
 	| "VaultMid"

@@ -36,7 +36,7 @@ function AnimationController.load(ctx: Context.Context)
 end
 
 function AnimationController.state(state: Types.MoveState, side: ("Left" | "Right")?)
-	local name = if state == "WallRun" then `WallRun{side}` else state
+	local name = if state == "WallRun" or state == "WallLeap" then `{state}{side}` else state
 	if name == current then
 		return
 	end

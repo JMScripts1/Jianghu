@@ -25,7 +25,8 @@ local Anims: { [Types.AnimName]: string } = {
 	SlideJump = "rbxassetid://135295565014032",
 	WallRunLeft = "rbxassetid://116628350222963",
 	WallRunRight = "rbxassetid://104913629506430",
-	WallLeap = "",
+	WallLeapLeft = "rbxassetid://103898545115791",
+	WallLeapRight = "rbxassetid://105572157004127",
 	WallCling = "rbxassetid://78068464202635",
 	WallBoost = "rbxassetid://136022644832167",
 	DashF = "rbxassetid://94356223480257",
@@ -38,13 +39,15 @@ local Anims: { [Types.AnimName]: string } = {
 local slots: { [string]: true } = {
 	WallRunLeft = true,
 	WallRunRight = true,
+	WallLeapLeft = true,
+	WallLeapRight = true,
 	DashF = true,
 	DashB = true,
 	DashL = true,
 	DashR = true,
 }
 for state: string in MoveDefs do
-	if state ~= "WallRun" then
+	if state ~= "WallRun" and state ~= "WallLeap" then
 		slots[state] = true
 	end
 end

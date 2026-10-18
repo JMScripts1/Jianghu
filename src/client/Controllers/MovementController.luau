@@ -81,7 +81,9 @@ local function switch(ctx: Context.Context, to: Types.MoveState)
 	ctx.endsAt = if def.duration then now + def.duration else nil
 	ctx.cooldownUntil[to] = now + def.cooldown
 	MODULES[to].enter(ctx)
-	AnimationController.state(to, if to == "WallRun" and ctx.wallHit then ctx.wallHit.side else nil)
+	-- a leap only comes off a wall run and keeps its hit, so it leaps from the run's side
+	local sided = to == "WallRun" or to == "WallLeap"
+	AnimationController.state(to, if sided and ctx.wallHit then ctx.wallHit.side else nil)
 
 	if Config.DEBUG then
 		print("move", from, to)
