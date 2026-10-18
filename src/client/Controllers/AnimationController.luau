@@ -9,6 +9,9 @@ local MoveDefs = require(ReplicatedStorage.Shared.MoveDefs)
 local Types = require(ReplicatedStorage.Shared.Types)
 local Context = require(script.Parent.Movement.Context)
 
+-- these states last until landing but their animations are one shots, so the fall loop takes over when one runs out
+local THEN_FALL: { [string]: true } = { Jump = true, DoubleJump = true, SlideJump = true }
+
 local AnimationController = {}
 
 local tracks: { [string]: AnimationTrack } = {}
@@ -30,7 +33,20 @@ function AnimationController.load(ctx: Context.Context)
 		end
 		local anim = Instance.new("Animation")
 		anim.AnimationId = id
-		tracks[name] = ctx.animator:LoadAnimation(anim)
+		local track = ctx.animator:LoadAnimation(anim)
+		tracks[name] = track
+
+		if THEN_FALL[name] then
+			-- state() moves current on before stopping the old track, so a state change never gets in here
+			ctx.trove:Connect(track.Stopped, function()
+				if current == name and playing == track then
+					playing = tracks.Fall
+					if playing then
+						playing:Play(Config.ANIM_FADE)
+					end
+				end
+			end)
+		end
 	end
 
 	ctx.trove:Add(function()
