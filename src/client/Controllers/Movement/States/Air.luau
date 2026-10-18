@@ -14,15 +14,6 @@ local Air = {}
 -- the carried direction, steering turns it but never adds speed
 local airDir = Vector3.zero
 
-local function turn(from: Vector3, to: Vector3, maxAngle: number): Vector3
-	local angle = math.acos(math.clamp(from:Dot(to), -1, 1))
-	if angle <= maxAngle then
-		return to
-	end
-	local sign = if from:Cross(to).Y >= 0 then 1 else -1
-	return CFrame.fromAxisAngle(Vector3.yAxis, maxAngle * sign):VectorToWorldSpace(from)
-end
-
 -- whichever grounded state input and momentum call for, nil while still in the air
 function Air.landing(ctx: Context.Context): Types.MoveState?
 	if ctx.root.AssemblyLinearVelocity.Y > 0 or not Probes.ground(ctx.root) then
@@ -74,7 +65,9 @@ function Air.update(ctx: Context.Context, dt: number): Types.MoveState?
 
 	local wish = ctx.hum.MoveDirection
 	if wish.Magnitude > 0 then
-		airDir = if airDir == Vector3.zero then wish else turn(airDir, wish, math.rad(Config.AIR_TURN_RATE) * dt)
+		airDir = if airDir == Vector3.zero
+			then wish
+			else Context.turn(airDir, wish, math.rad(Config.AIR_TURN_RATE) * dt)
 	end
 
 	-- runs after the default controls each frame, so this is the direction physics uses

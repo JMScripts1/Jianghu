@@ -28,6 +28,10 @@ function Slide.update(ctx: Context.Context, dt: number): Types.MoveState?
 		return "Fall"
 	end
 
+	-- the default camera stops short of straight down, so the flat look is never zero
+	local look = workspace.CurrentCamera.CFrame.LookVector
+	slideDir = Context.turn(slideDir, Vector3.new(look.X, 0, look.Z).Unit, math.rad(Config.SLIDE_TURN_RATE) * dt)
+
 	local n = floor.Normal
 	if n.Y < Config.SLOPE_MIN_Y then
 		-- the flat part of the normal points downhill, so this adds going down and drains going up
@@ -39,6 +43,7 @@ function Slide.update(ctx: Context.Context, dt: number): Types.MoveState?
 	if ctx.momentum < Config.SLIDE_END_SPEED then
 		return if ctx.input.sprint then "Run" else "CrouchWalk"
 	end
+	Context.face(ctx, slideDir)
 	Context.setVelocity(ctx, slideDir * ctx.momentum, false)
 	return nil
 end

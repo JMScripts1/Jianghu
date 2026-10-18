@@ -149,6 +149,16 @@ function Context.release(ctx: Context)
 	ctx.hum.AutoRotate = true
 end
 
+-- both flat and unit, turns around Y by at most maxAngle radians
+function Context.turn(from: Vector3, to: Vector3, maxAngle: number): Vector3
+	local angle = math.acos(math.clamp(from:Dot(to), -1, 1))
+	if angle <= maxAngle then
+		return to
+	end
+	local sign = if from:Cross(to).Y >= 0 then 1 else -1
+	return CFrame.fromAxisAngle(Vector3.yAxis, maxAngle * sign):VectorToWorldSpace(from)
+end
+
 -- the same move gains less each time in a row, until REPEAT_RESET passes without it
 function Context.gain(ctx: Context, move: Types.MoveState, amount: number): number
 	local now = os.clock()
