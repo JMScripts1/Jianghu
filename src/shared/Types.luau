@@ -74,4 +74,72 @@ export type LedgeHit = {
 	normal: Vector3,
 }
 
+-- worked out from end times when read, never stored, see StateService.combatState
+export type CombatState = "Idle" | "Attacking" | "Parrying" | "Blocking" | "Stunned" | "PostureBroken" | "Downed"
+
+export type CombatAction = "Light" | "Heavy" | "Release" | "Block" | "Unblock"
+
+export type CombatCooldown = "Parry" | "Heavy" | "Delay" | "Run"
+
+export type WeaponId = "fist"
+
+export type AttackId =
+	"fist_light_1"
+	| "fist_light_2"
+	| "fist_light_3"
+	| "fist_light_4"
+	| "fist_heavy"
+	| "fist_run"
+	| "fist_air"
+
+export type HitResult = "Dodged" | "Parried" | "Blocked" | "Broken" | "Hit"
+
+-- which slot of the weapon an attack came from
+export type AttackKind = "Light" | "Heavy" | "Run" | "Air"
+
+-- what CombatDefs.pick decided. combo is the string count after this attack, 0 for anything but a light
+export type Pick = {
+	id: AttackId,
+	kind: AttackKind,
+	combo: number,
+	cooldown: CombatCooldown?,
+}
+
+export type AttackDef = {
+	anim: string,
+	windup: number,
+	-- seconds into the windup where a held button delays it, nil can't be delayed
+	delayAt: number?,
+	active: number,
+	recovery: number,
+	damage: number,
+	posture: number,
+	-- share of damage that goes through a block
+	chip: number,
+	stun: number,
+	-- width, height, depth
+	box: Vector3,
+	lunge: number?,
+	knockback: number?,
+	canParry: boolean,
+	canBlock: boolean,
+	canDodge: boolean,
+	isGuardBreak: boolean,
+	-- can't be parried out of
+	isHeavyStun: boolean,
+}
+
+export type WeaponDef = {
+	light: { AttackId },
+	heavy: AttackId,
+	run: AttackId,
+	air: AttackId,
+}
+
+export type CombatDef = {
+	actions: { [CombatAction]: true },
+	-- landings are allowed whatever this says, see StateService.canMove
+	moves: { [MoveState]: true },
+}
+
 return {}

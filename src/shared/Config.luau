@@ -142,6 +142,9 @@ return table.freeze({
 		JUMP = Enum.KeyCode.Space,
 		DASH = Enum.KeyCode.Q,
 		MANTLE = Enum.KeyCode.F,
+		LIGHT = Enum.UserInputType.MouseButton1,
+		HEAVY = Enum.KeyCode.R,
+		BLOCK = Enum.KeyCode.F,
 	}),
 	-- most seconds between the two taps of the sprint key
 	DOUBLE_TAP = 0.3,
@@ -168,4 +171,68 @@ return table.freeze({
 
 	STAMINA_MAX = 100,
 	STAMINA_REGEN = 15,
+
+	PARRY_WINDOW = 0.25,
+	PARRY_COOLDOWN = 1.4,
+	PARRY_POSTURE = 20,
+	PARRIED_STUN = 0.4,
+	-- the target's flat look dotted with the way to the attacker. under 0 because the server sees a turn late
+	GUARD_FACING = -0.15,
+
+	POSTURE_MAX = 100,
+	POSTURE_REGEN = 15,
+	POSTURE_REGEN_DELAY = 2,
+	POSTURE_BREAK_TIME = 2,
+
+	ATTACK_WALK_SPEED = 8,
+	COMBO_RESET = 0.4,
+	HEAVY_COOLDOWN = 3,
+	-- a light pressed this close to the end of a swing is sent when it ends
+	INPUT_BUFFER = 0.2,
+	ACTIVE_STEP = 1 / 30,
+	LUNGE_TIME = 0.1,
+
+	-- held through its delayAt, a windup runs at DELAY_SPEED for up to DELAY_MAX
+	DELAY_SPEED = 0.1,
+	DELAY_MAX = 0.6,
+	-- held this long gets all of DELAY_STUN
+	DELAY_FULL = 0.25,
+	DELAY_COOLDOWN = 1.2,
+	DELAY_STUN = 0.15,
+	DELAY_POSTURE = 2,
+	DELAY_EXHAUST = 4,
+	DELAY_LUNGE = 40,
+	DELAY_WALK_SPEED = 5,
+
+	RUN_ATTACK_COOLDOWN = 2.5,
+	-- the lunge is momentum times this. the damage bonus scales from RUN_SPEED to MOMENTUM_MAX of measured speed
+	RUN_ATTACK_LUNGE = 1.5,
+	RUN_ATTACK_BONUS = 0.5,
+
+	-- the box grows this much on every side, the server sees everyone slightly in the past
+	HIT_SLACK = 1,
+	-- the box's back face sits this far behind the root
+	BOX_BACK = 1,
+	MAX_TARGETS = 4,
+
+	BLOCK_WALK_SPEED = 8,
+	STUN_WALK_SPEED = 4,
+	KNOCKBACK_TIME = 0.4,
+
+	HEALTH_REGEN = 2,
+	REGEN_INTERVAL = 1,
+	-- no health regen until this long after hitting or being hit
+	COMBAT_TAG = 20,
+	DOWNED_TIME = 15,
+	-- share of max health a downed character gets back up with
+	DOWNED_HEALTH = 0.2,
+
+	-- every press has a release that counts too, a dropped Unblock would leave the block held
+	COMBAT_BURST = 16,
+	COMBAT_REFILL = 12,
+	COMBAT_TOLERANCE = 0.15,
+	FX_RANGE = 200,
+	DUMMY_INTERVAL = 1.5,
+	-- a dummy only turns to and swings at a player this close
+	DUMMY_RANGE = 30,
 })
