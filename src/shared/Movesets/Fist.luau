@@ -64,6 +64,7 @@ local Fist: Types.Moveset = {
 		recovery = 21 / 60,
 		lunge = 40,
 		knockback = 70,
+		damage = 20,
 	},
 	run = { anim = "" },
 	air = { anim = "" },

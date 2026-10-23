@@ -14,7 +14,7 @@ type Row = {
 
 -- a weapon of a type that already has a moveset is one row here
 local rows: { [Types.WeaponId]: Row } = {
-	fist = { moveset = "fist", damage = 1, speed = 1.1, reach = 1 },
+	fist = { moveset = "fist", damage = 1, speed = 1.15, reach = 1 },
 }
 
 local WeaponDefs: { [Types.WeaponId]: Types.WeaponDef } = {}
