@@ -9,47 +9,39 @@ export type MoveState =
 	| "Slide"
 	| "CrouchIdle"
 	| "CrouchWalk"
-	| "VaultLow"
 	| "Jump"
 	| "DoubleJump"
 	| "SlideJump"
+	| "LedgeLeap"
 	| "Fall"
 	| "WallRun"
 	| "WallLeap"
 	| "WallCling"
 	| "WallBoost"
-	| "VaultMid"
-
-export type MoveGroup = "Grounded" | "Airborne" | "Wall"
-
-export type DashDir = "F" | "B" | "L" | "R"
-
--- WallRun and WallLeap play one side, R6 animations can't be mirrored at runtime
-export type AnimName =
-	"Idle"
-	| "Walk"
-	| "Run"
-	| "Slide"
-	| "SlideIntro"
-	| "SlideExit"
-	| "CrouchIdle"
-	| "CrouchWalk"
-	| "VaultLow"
-	| "Jump"
-	| "DoubleJump"
-	| "SlideJump"
-	| "Fall"
-	| "WallRunLeft"
-	| "WallRunRight"
-	| "WallLeapLeft"
-	| "WallLeapRight"
-	| "WallCling"
-	| "WallBoost"
-	| "VaultMid"
+	| "Mantle"
 	| "DashF"
 	| "DashB"
 	| "DashL"
 	| "DashR"
+
+export type MoveGroup = "Grounded" | "Airborne" | "Wall"
+
+-- WallRun and WallLeap play one of their sides, R6 can't mirror at runtime
+export type AnimName =
+	MoveState
+	| "WallRunLeft"
+	| "WallRunRight"
+	| "WallLeapLeft"
+	| "WallLeapRight"
+	| "Roll"
+	| "LedgeLeap2"
+	| "LedgeLeap3"
+	| "LedgeLeap4"
+	| "RampLeap"
+	| "AirDash"
+
+-- states play the slot named after them, the four dashes share Dash and any landing plays Land
+export type SoundName = MoveState | "Dash" | "Land"
 
 export type MoveDef = {
 	group: MoveGroup,
@@ -59,7 +51,13 @@ export type MoveDef = {
 	cooldown: number,
 	duration: number?,
 	after: MoveState?,
-	dash: boolean,
+	-- the other state on the same cooldown
+	shares: MoveState?,
+	isDash: boolean,
+	-- holds onto a wall part, and each part takes every attached state once before landing
+	isAttached: boolean,
+	-- gives the air dash back
+	isDashReset: boolean,
 	to: { [MoveState]: true },
 }
 
@@ -70,8 +68,7 @@ export type WallHit = {
 	part: BasePart,
 }
 
-export type VaultHit = {
-	kind: "Low" | "Mid",
+export type LedgeHit = {
 	part: BasePart,
 	point: Vector3,
 	normal: Vector3,

@@ -4,61 +4,56 @@
 local MoveDefs = require(script.Parent.MoveDefs)
 local Types = require(script.Parent.Types)
 
--- "rbxassetid://..." made on an R6 rig and owned by the experience's owner, empty slots are skipped
--- priority is set in the animation editor, grouped below by the one each needs
-local Anims: { [Types.AnimName]: string } = {
-	-- Idle
-	Idle = "rbxassetid://99836695944502",
-	Fall = "rbxassetid://87938113594336",
-	CrouchIdle = "rbxassetid://120819572969910",
-	-- Movement
-	Walk = "rbxassetid://84144179682608",
-	Run = "rbxassetid://79577852813740",
-	CrouchWalk = "rbxassetid://119276757875300",
-
-	-- Action
-	Slide = "rbxassetid://102374643545160",
-	VaultLow = "rbxassetid://127756718825111",
-	VaultMid = "rbxassetid://79521848275184",
-	Jump = "rbxassetid://79956262533713",
-	DoubleJump = "rbxassetid://105830003406496",
-	SlideJump = "rbxassetid://125061944056832",
-	WallRunLeft = "rbxassetid://116628350222963",
-	WallRunRight = "rbxassetid://104913629506430",
-	WallLeapLeft = "rbxassetid://103898545115791",
-	WallLeapRight = "rbxassetid://105572157004127",
-	WallCling = "rbxassetid://78068464202635",
-	WallBoost = "rbxassetid://136022644832167",
-	DashF = "rbxassetid://94356223480257",
-	DashB = "rbxassetid://118683224611316",
-	DashL = "rbxassetid://77340216112314",
-	DashR = "rbxassetid://122209274211606",
-
-	-- Action2, one shots over the Slide loop and whatever the slide ends in
-	SlideIntro = "rbxassetid://116003744485924",
-	SlideExit = "rbxassetid://88690341011809",
-}
-
--- the old solver doesn't check the keys above, so a typo would just never play
-local slots: { [string]: true } = {
-	SlideIntro = true,
-	SlideExit = true,
+local SLOTS: { [string]: true } = {
 	WallRunLeft = true,
 	WallRunRight = true,
 	WallLeapLeft = true,
 	WallLeapRight = true,
-	DashF = true,
-	DashB = true,
-	DashL = true,
-	DashR = true,
+	Roll = true,
+	LedgeLeap2 = true,
+	LedgeLeap3 = true,
+	LedgeLeap4 = true,
+	RampLeap = true,
+	AirDash = true,
 }
-for state: string in MoveDefs do
-	if state ~= "WallRun" and state ~= "WallLeap" then
-		slots[state] = true
-	end
+for state in MoveDefs do
+	SLOTS[state] = true
 end
+
+local Anims: { [Types.AnimName]: string } = {
+	Idle = "rbxassetid://135449190200569",
+	Walk = "rbxassetid://87539854939325",
+	Run = "rbxassetid://97365671049008",
+	Jump = "rbxassetid://91804113405885",
+	Slide = "rbxassetid://131338188389559",
+	SlideJump = "rbxassetid://87854361282454",
+	CrouchIdle = "rbxassetid://118920925691918",
+	CrouchWalk = "rbxassetid://126287311643867",
+	WallRunLeft = "rbxassetid://117494238825220",
+	WallRunRight = "rbxassetid://136658778996572",
+	Fall = "rbxassetid://127049077162885",
+	DoubleJump = "rbxassetid://84083501909606",
+	WallCling = "rbxassetid://130191404882056",
+	WallBoost = "rbxassetid://113668530383382",
+	WallLeapLeft = "rbxassetid://78730538514260",
+	WallLeapRight = "rbxassetid://101600913178855",
+	Mantle = "rbxassetid://137171835971660",
+	DashB = "rbxassetid://132820400906047",
+	DashF = "rbxassetid://138725257049301",
+	DashL = "rbxassetid://90778754431207",
+	DashR = "rbxassetid://99540956567959",
+	AirDash = "rbxassetid://133986443424200",
+	Roll = "rbxassetid://120431676333500",
+	LedgeLeap = "rbxassetid://90219606237010",
+	LedgeLeap2 = "rbxassetid://120588070311007",
+	LedgeLeap3 = "rbxassetid://117907258676401",
+	LedgeLeap4 = "rbxassetid://116062349274028",
+	RampLeap = "rbxassetid://91426030301349",
+}
+
+-- the old solver doesn't check keys in the table above, so a typo would just never play
 for name: string in Anims do
-	assert(slots[name], `no animation slot called {name}`)
+	assert(SLOTS[name], `no state or slot called {name}`)
 end
 
 return table.freeze(Anims)

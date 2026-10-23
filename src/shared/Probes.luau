@@ -9,40 +9,39 @@ local Probes = {}
 local params = RaycastParams.new()
 params.CollisionGroup = "MoveProbe"
 
-local UP = Vector3.yAxis
+local DROP_RAY = Vector3.new(0, -(Config.ROOT_HEIGHT + Config.LEDGE_LEAP_DROP), 0)
 
 local function isWallFace(hit: RaycastResult): boolean
 	return math.abs(hit.Normal.Y) <= Config.WALL_MAX_NORMAL_Y and hit.Instance.Anchored
 end
 
-local function isVaultable(part: BasePart): boolean
-	if part:HasTag("Vaultable") then
+local function isMantleable(part: BasePart): boolean
+	if part:HasTag("Mantleable") then
 		return true
 	end
 	local model = part:FindFirstAncestorOfClass("Model")
-	return model ~= nil and model:HasTag("Vaultable")
+	return model ~= nil and model:HasTag("Mantleable")
 end
 
--- a ray that starts inside a part never hits it, so a top above the window is rejected for free
-local function findTop(at: Vector3, fromY: number, depth: number): Vector3?
-	local hit = workspace:Raycast(Vector3.new(at.X, fromY, at.Z), -UP * depth, params)
-	if hit and hit.Instance.Anchored and hit.Normal.Y >= Config.TOP_MIN_NORMAL_Y then
+-- a ray that starts inside a part never hits it, so a top above fromY is rejected for free
+local function findTop(part: BasePart, point: Vector3, fromY: number, depth: number): Vector3?
+	local hit = workspace:Raycast(Vector3.new(point.X, fromY, point.Z), Vector3.new(0, -depth, 0), params)
+	if hit and hit.Instance == part and hit.Normal.Y >= Config.TOP_MIN_NORMAL_Y then
 		return hit.Position
 	end
 	return nil
 end
 
-local function hasHeadroom(top: Vector3, look: Vector3): boolean
-	return workspace:Raycast(top + UP * Config.ROOT_HEIGHT, look * Config.HEADROOM_REACH, params) == nil
+local function hasHeadroom(from: Vector3, look: Vector3, topY: number, length: number): boolean
+	local origin = Vector3.new(from.X, topY + Config.ROOT_HEIGHT, from.Z)
+	return workspace:Raycast(origin, look * length, params) == nil
 end
 
--- slack is the server's extra reach, it sees every character slightly in the past
-function Probes.wall(root: BasePart, speed: number, slack: number?): Types.WallHit?
+function Probes.wall(root: BasePart, speed: number, reach: number?): Types.WallHit?
 	local cf = root.CFrame
-	local reach = Config.WALL_REACH + (slack or 0)
 
 	for _, dir in { cf.LookVector, cf.RightVector, -cf.RightVector } do
-		local ray = dir * reach
+		local ray = dir * (reach or Config.WALL_REACH)
 		local hit = workspace:Raycast(cf.Position, ray, params)
 		if not hit or not isWallFace(hit) or hit.Instance:HasTag("NoWall") then
 			continue
@@ -51,7 +50,7 @@ function Probes.wall(root: BasePart, speed: number, slack: number?): Types.WallH
 		-- centre plus one more height on the same part, so a ledge corner isn't a wall
 		local spans = 0
 		for _, offset in Config.WALL_SPAN_OFFSETS do
-			local other = workspace:Raycast(cf.Position + UP * offset, ray, params)
+			local other = workspace:Raycast(cf.Position + Vector3.new(0, offset, 0), ray, params)
 			if other and other.Instance == hit.Instance then
 				spans += 1
 			end
@@ -75,58 +74,52 @@ function Probes.wall(root: BasePart, speed: number, slack: number?): Types.WallH
 	return nil
 end
 
-function Probes.ground(root: BasePart, slack: number?): RaycastResult?
-	return workspace:Raycast(root.Position, -UP * (Config.GROUND_RAY + (slack or 0)), params)
+function Probes.ground(root: BasePart, reach: number?): RaycastResult?
+	return workspace:Raycast(root.Position, Vector3.new(0, -(reach or Config.GROUND_RAY), 0), params)
 end
 
--- the client also checks it's moving toward the hit, the server skips that
-function Probes.vaultLow(root: BasePart, slack: number?): Types.VaultHit?
+-- how steeply the floor drops along a flat unit dir, 0 on the flat and 1 straight down. uphill is negative
+function Probes.slope(root: BasePart, dir: Vector3, reach: number?): number
+	local hit = Probes.ground(root, reach)
+	return if hit then Vector3.new(hit.Normal.X, 0, hit.Normal.Z):Dot(dir) else 0
+end
+
+-- nothing at knee height means the body has risen past the top of whatever is in front
+function Probes.isOverLip(root: BasePart, dir: Vector3): boolean
+	local knee = root.Position + Vector3.new(0, Config.KNEE_Y, 0)
+	return workspace:Raycast(knee, dir * Config.WALL_REACH, params) == nil
+end
+
+-- no floor within LEDGE_LEAP_DROP under the feet, here or `ahead` of here
+function Probes.isOverDrop(root: BasePart, ahead: Vector3?): boolean
+	if workspace:Raycast(root.Position, DROP_RAY, params) == nil then
+		return true
+	end
+	return ahead ~= nil and workspace:Raycast(root.Position + ahead, DROP_RAY, params) == nil
+end
+
+function Probes.ceiling(root: BasePart): RaycastResult?
+	return workspace:Raycast(root.Position, Vector3.new(0, Config.STAND_RAY, 0), params)
+end
+
+-- the wall ray goes along the bottom of the lip window, so any lip above it is found
+function Probes.ledge(root: BasePart, slack: number?): Types.LedgeHit?
 	local cf = root.CFrame
-	local knee = cf.Position + UP * Config.KNEE_Y
-	local hit = workspace:Raycast(knee, cf.LookVector * (Config.VAULT_REACH + (slack or 0)), params)
-	if not hit or not isWallFace(hit) or not isVaultable(hit.Instance) then
-		return nil
-	end
-
-	local floorY = cf.Position.Y - Config.ROOT_HEIGHT
-	local top = findTop(
-		hit.Position - hit.Normal * Config.VAULT_INSET,
-		floorY + Config.VAULT_LOW_MAX_H,
-		Config.VAULT_LOW_MAX_H - Config.VAULT_LOW_MIN_H
-	)
-	if not top or not hasHeadroom(top, cf.LookVector) then
-		return nil
-	end
-
-	return { kind = "Low", part = hit.Instance, point = top, normal = hit.Normal }
-end
-
--- slack also raises the lip window, a boosting character is further up than the server sees
-function Probes.vaultMid(root: BasePart, slack: number?): Types.VaultHit?
 	local give = slack or 0
-	local cf = root.CFrame
-	local head = cf.Position + UP * Config.HEAD_Y
-	local reach = cf.LookVector * (Config.LEDGE_REACH + give)
-	local hit = workspace:Raycast(head, reach, params)
-	if not hit or not isWallFace(hit) or not isVaultable(hit.Instance) then
+	local low = cf.Position + Vector3.new(0, Config.LEDGE_LOW - give, 0)
+
+	local hit = workspace:Raycast(low, cf.LookVector * (Config.LEDGE_REACH + give), params)
+	if not hit or not isWallFace(hit) or not isMantleable(hit.Instance) then
 		return nil
 	end
 
-	local windowTop = head.Y + Config.LEDGE_MAX_UP + give
-	if workspace:Raycast(Vector3.new(head.X, windowTop, head.Z), reach, params) then
+	local fromY = cf.Position.Y + Config.LEDGE_HIGH + give
+	local top = findTop(hit.Instance, hit.Position - hit.Normal * Config.LEDGE_DEPTH, fromY, fromY - low.Y)
+	if not top or not hasHeadroom(cf.Position, cf.LookVector, top.Y, Config.LEDGE_REACH + Config.LEDGE_DEPTH) then
 		return nil
 	end
 
-	local top = findTop(
-		hit.Position - hit.Normal * Config.LEDGE_DEPTH,
-		windowTop,
-		Config.LEDGE_MAX_UP - Config.LEDGE_MIN_UP + give
-	)
-	if not top or not hasHeadroom(top, cf.LookVector) then
-		return nil
-	end
-
-	return { kind = "Mid", part = hit.Instance, point = top, normal = hit.Normal }
+	return { part = hit.Instance, point = top, normal = hit.Normal }
 end
 
 return Probes
