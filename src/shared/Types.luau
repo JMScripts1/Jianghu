@@ -83,14 +83,11 @@ export type CombatCooldown = "Parry" | "Heavy" | "Delay" | "Run"
 
 export type WeaponId = "fist"
 
-export type AttackId =
-	"fist_light_1"
-	| "fist_light_2"
-	| "fist_light_3"
-	| "fist_light_4"
-	| "fist_heavy"
-	| "fist_run"
-	| "fist_air"
+-- one per weapon type, see Movesets
+export type MovesetId = "fist"
+
+-- made by WeaponDefs from the weapon and the slot, like fist_light_3, so none is ever typed by hand
+export type AttackId = string
 
 export type HitResult = "Dodged" | "Parried" | "Blocked" | "Broken" | "Hit"
 
@@ -107,6 +104,8 @@ export type Pick = {
 
 export type AttackDef = {
 	anim: string,
+	-- the rate its animation plays at, the weapon's speed. the timings below are already divided by it
+	speed: number,
 	windup: number,
 	-- seconds into the windup where a held button delays it, nil can't be delayed
 	delayAt: number?,
@@ -129,11 +128,49 @@ export type AttackDef = {
 	isHeavyStun: boolean,
 }
 
+-- what an attack in a moveset states for itself, anything it leaves out comes from its kind
+export type AttackSpec = {
+	anim: string,
+	windup: number?,
+	delayAt: number?,
+	active: number?,
+	recovery: number?,
+	damage: number?,
+	posture: number?,
+	chip: number?,
+	stun: number?,
+	box: Vector3?,
+	lunge: number?,
+	knockback: number?,
+	canParry: boolean?,
+	canBlock: boolean?,
+	canDodge: boolean?,
+	isGuardBreak: boolean?,
+	isHeavyStun: boolean?,
+}
+
+-- every weapon of a type swings the same moveset. an attack's kind is the slot it sits in
+export type Moveset = {
+	light: { AttackSpec },
+	heavy: AttackSpec,
+	run: AttackSpec,
+	air: AttackSpec,
+	-- this weapon type's own reactions, anything empty or left out plays the one in CombatAnims
+	reactions: { [CombatState]: string }?,
+}
+
+-- damage multiplies every hit, speed runs the whole swing and its animation faster, reach makes the box longer.
+-- the attack ids and reactions are filled in by WeaponDefs from the moveset
 export type WeaponDef = {
+	moveset: MovesetId,
+	damage: number,
+	speed: number,
+	reach: number,
 	light: { AttackId },
 	heavy: AttackId,
 	run: AttackId,
 	air: AttackId,
+	reactions: { [CombatState]: string },
 }
 
 export type CombatDef = {

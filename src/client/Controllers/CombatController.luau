@@ -5,7 +5,6 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local AttackDefs = require(ReplicatedStorage.Shared.AttackDefs)
-local CombatAnims = require(ReplicatedStorage.Shared.CombatAnims)
 local CombatDefs = require(ReplicatedStorage.Shared.CombatDefs)
 local Config = require(ReplicatedStorage.Shared.Config)
 local MoveDefs = require(ReplicatedStorage.Shared.MoveDefs)
@@ -62,8 +61,8 @@ local player = Players.LocalPlayer
 local CombatController = {}
 
 local animations: { [string]: Animation } = {}
-local tracks: { [Types.AttackId]: AnimationTrack } = {}
-local reactions: { [Types.CombatState]: AnimationTrack } = {}
+-- by animation id, so every weapon on the same moveset shares one track
+local tracks: { [string]: AnimationTrack } = {}
 local reacting: AnimationTrack? = nil
 
 local swing: Swing? = nil
@@ -159,9 +158,9 @@ local function attack(c: Ctx, action: Types.CombatAction, button: InputControlle
 	end
 
 	local def = AttackDefs[id]
-	local track = tracks[id]
+	local track = tracks[def.anim]
 	if track then
-		track:Play(Config.ANIM_FADE)
+		track:Play(Config.ANIM_FADE, 1, def.speed)
 	end
 
 	local hitAt = now + def.windup
@@ -240,7 +239,8 @@ local function move(c: Ctx, now: number)
 end
 
 local function react(c: Ctx)
-	local track = reactions[state(c)]
+	local id = WeaponDefs[weaponOf(c)].reactions[state(c)]
+	local track = if id then tracks[id] else nil
 	if track == reacting then
 		return
 	end
@@ -278,20 +278,22 @@ function CombatController.load(c: Ctx)
 	push = nil
 
 	local animator = c.hum:WaitForChild("Animator") :: Animator
-	for id: Types.AttackId, def in AttackDefs do
-		if def.anim ~= "" then
-			tracks[id] = animator:LoadAnimation(animation(def.anim))
+	local function loadTrack(id: string)
+		if id ~= "" and not tracks[id] then
+			tracks[id] = animator:LoadAnimation(animation(id))
 		end
 	end
-	for combatState: Types.CombatState, id in CombatAnims do
-		if id ~= "" then
-			reactions[combatState] = animator:LoadAnimation(animation(id))
+	for _, def in AttackDefs do
+		loadTrack(def.anim)
+	end
+	for _, weapon in WeaponDefs do
+		for _, id in weapon.reactions do
+			loadTrack(id)
 		end
 	end
 
 	c.trove:Add(function()
 		table.clear(tracks)
-		table.clear(reactions)
 		reacting = nil
 		swing = nil
 		push = nil

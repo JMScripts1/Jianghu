@@ -1,32 +1,15 @@
 --!strict
 -- Jianghu by Ruha.luau (github.com/JMScripts1)
 -- MIT licensed, see LICENSE. Feel free to remove this header.
+local Movesets = require(script.Parent.Movesets)
 local Types = require(script.Parent.Types)
+local WeaponDefs = require(script.Parent.WeaponDefs)
 
--- what an attack states for itself, anything it leaves out comes from its kind
-type Spec = {
-	anim: string,
-	windup: number?,
-	delayAt: number?,
-	active: number?,
-	recovery: number?,
-	damage: number?,
-	posture: number?,
-	chip: number?,
-	stun: number?,
-	box: Vector3?,
-	lunge: number?,
-	knockback: number?,
-	canParry: boolean?,
-	canBlock: boolean?,
-	canDodge: boolean?,
-	isGuardBreak: boolean?,
-	isHeavyStun: boolean?,
-}
-
--- the fist's numbers, which every other weapon tunes from. an empty anim is an attack with no animation yet
+-- the starting numbers every moveset tunes from. a light with an empty anim swings with nothing to see, a heavy,
+-- running or air attack with one is never picked, see CombatDefs.pick
 local LIGHT: Types.AttackDef = {
 	anim = "",
+	speed = 1,
 	windup = 0.35,
 	delayAt = 0.15,
 	active = 0,
@@ -46,6 +29,7 @@ local LIGHT: Types.AttackDef = {
 -- guard break, so blocking it breaks posture and its posture number is never used
 local HEAVY: Types.AttackDef = {
 	anim = "",
+	speed = 1,
 	windup = 0.7,
 	delayAt = 0.3,
 	active = 0,
@@ -67,6 +51,7 @@ local HEAVY: Types.AttackDef = {
 -- the lunge comes from momentum, see RUN_ATTACK_LUNGE
 local RUN: Types.AttackDef = {
 	anim = "",
+	speed = 1,
 	windup = 0.3,
 	active = 0,
 	recovery = 0.35,
@@ -84,6 +69,7 @@ local RUN: Types.AttackDef = {
 
 local AIR: Types.AttackDef = {
 	anim = "",
+	speed = 1,
 	windup = 0.3,
 	active = 0,
 	recovery = 0.2,
@@ -99,19 +85,24 @@ local AIR: Types.AttackDef = {
 	isHeavyStun = false,
 }
 
+-- the weapon's stats go in here, so every number downstream is already that weapon's own.
 -- booleans go through ~= nil, `or` would turn a false back into the kind's true
-local function build(kind: Types.AttackDef, spec: Spec): Types.AttackDef
+local function build(kind: Types.AttackDef, spec: Types.AttackSpec, weapon: Types.WeaponDef): Types.AttackDef
+	local delayAt = spec.delayAt or kind.delayAt
+	local box = spec.box or kind.box
 	return {
 		anim = spec.anim,
-		windup = spec.windup or kind.windup,
-		delayAt = spec.delayAt or kind.delayAt,
-		active = spec.active or kind.active,
-		recovery = spec.recovery or kind.recovery,
-		damage = spec.damage or kind.damage,
+		speed = weapon.speed,
+		windup = (spec.windup or kind.windup) / weapon.speed,
+		delayAt = if delayAt then delayAt / weapon.speed else nil,
+		active = (spec.active or kind.active) / weapon.speed,
+		recovery = (spec.recovery or kind.recovery) / weapon.speed,
+		damage = (spec.damage or kind.damage) * weapon.damage,
 		posture = spec.posture or kind.posture,
 		chip = spec.chip or kind.chip,
 		stun = spec.stun or kind.stun,
-		box = spec.box or kind.box,
+		-- reach is depth only, a longer weapon doesn't swing any wider
+		box = Vector3.new(box.X, box.Y, box.Z * weapon.reach),
 		lunge = spec.lunge or kind.lunge,
 		knockback = spec.knockback or kind.knockback,
 		canParry = if spec.canParry ~= nil then spec.canParry else kind.canParry,
@@ -122,19 +113,17 @@ local function build(kind: Types.AttackDef, spec: Spec): Types.AttackDef
 	}
 end
 
-local AttackDefs: { [Types.AttackId]: Types.AttackDef } = {
-	fist_light_1 = build(LIGHT, { anim = "rbxassetid://120569367050205" }),
-	fist_light_2 = build(LIGHT, { anim = "rbxassetid://121297357737920" }),
-	fist_light_3 = build(LIGHT, { anim = "rbxassetid://86517120998857" }),
-	-- the finisher, it knocks back unless delayed
-	fist_light_4 = build(
-		LIGHT,
-		{ anim = "rbxassetid://100220503224779", recovery = 0.3, damage = 5, posture = 15, stun = 0.6, knockback = 50 }
-	),
-	fist_heavy = build(HEAVY, { anim = "" }),
-	fist_run = build(RUN, { anim = "" }),
-	fist_air = build(AIR, { anim = "" }),
-}
+-- every weapon gets its own copy of its moveset's attacks, under the ids WeaponDefs made for it
+local AttackDefs: { [Types.AttackId]: Types.AttackDef } = {}
+for _, weapon in WeaponDefs do
+	local moveset = Movesets[weapon.moveset]
+	for i, id in weapon.light do
+		AttackDefs[id] = build(LIGHT, moveset.light[i], weapon)
+	end
+	AttackDefs[weapon.heavy] = build(HEAVY, moveset.heavy, weapon)
+	AttackDefs[weapon.run] = build(RUN, moveset.run, weapon)
+	AttackDefs[weapon.air] = build(AIR, moveset.air, weapon)
+end
 
 for id, def in AttackDefs do
 	assert(def.windup > 0, `{id} has no windup`)

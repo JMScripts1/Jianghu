@@ -4,10 +4,10 @@
 local Types = require(script.Parent.Types)
 
 -- played by a character's own client from its CombatState, everyone else sees them through replication.
--- attacks play their own anim from AttackDefs. an empty id plays nothing
+-- every weapon plays these unless its moveset has its own. an empty id plays nothing
 local CombatAnims: { [Types.CombatState]: string } = {
-	Parrying = "",
-	Blocking = "",
+	Parrying = "rbxassetid://111421663323177",
+	Blocking = "rbxassetid://120953089487237",
 	Stunned = "",
 	PostureBroken = "",
 	Downed = "",
