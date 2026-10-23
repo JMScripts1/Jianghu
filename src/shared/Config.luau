@@ -228,6 +228,8 @@ return table.freeze({
 	DOWNED_TIME = 15,
 	-- share of max health a downed character gets back up with
 	DOWNED_HEALTH = 0.2,
+	-- the angular impulse that tips a ragdoll over backwards, a body balanced on its feet would stay standing
+	RAGDOLL_TIP = 90,
 
 	-- every press has a release that counts too, a dropped Unblock would leave the block held
 	COMBAT_BURST = 16,

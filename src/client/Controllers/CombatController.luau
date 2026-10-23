@@ -84,6 +84,7 @@ local isBlockHeld = false
 local parryUntil = 0
 -- a parry pressed while stunned is still a stun to movement, see StateService.canMove
 local isParryOutOfStun = false
+local isRagdolled = false
 local push: Push? = nil
 -- from CombatFx, played on the next step
 local pending: Types.Reaction? = nil
@@ -345,6 +346,21 @@ local function respond(c: Ctx)
 	end
 end
 
+-- downed is a ragdoll. the server frees the limbs, but this client owns the character's physics, so the Humanoid
+-- state and the push that tips it over are made here
+local function ragdoll(c: Ctx)
+	local isDowned = serverState(c) == "Downed"
+	if isDowned == isRagdolled then
+		return
+	end
+	isRagdolled = isDowned
+	c.hum.AutoRotate = not isDowned
+	c.hum:ChangeState(if isDowned then Enum.HumanoidStateType.Physics else Enum.HumanoidStateType.Running)
+	if isDowned then
+		c.root:ApplyAngularImpulse(c.root.CFrame.RightVector * Config.RAGDOLL_TIP)
+	end
+end
+
 -- a landing is never refused, see StateService.canMove
 function CombatController.allows(c: Ctx, to: Types.MoveState): boolean
 	if MoveDefs[to].group == "Grounded" and MoveDefs[c.state].group ~= "Grounded" then
@@ -371,6 +387,7 @@ function CombatController.load(c: Ctx)
 	isBlockHeld = false
 	parryUntil = 0
 	isParryOutOfStun = false
+	isRagdolled = false
 	push = nil
 
 	local animator = c.hum:WaitForChild("Animator") :: Animator
@@ -438,6 +455,7 @@ function CombatController.step(c: Ctx): boolean
 	move(c, now)
 	react(c)
 	respond(c)
+	ragdoll(c)
 	return swing ~= nil and swing ~= was
 end
 

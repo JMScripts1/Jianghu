@@ -132,8 +132,8 @@ local function step(model: Model, d: Dummy, now: number)
 	local combat = st.combat
 	local m = mode(model)
 
-	-- full again whenever it isn't stunned, so a string's damage shows and then resets
-	if now >= combat.stunnedUntil then
+	-- full again whenever it isn't stunned or down, so a string's damage shows and then resets
+	if now >= combat.stunnedUntil and not combat.downed then
 		d.hum.Health = d.hum.MaxHealth
 	end
 	if m ~= "Block" and combat.isBlockHeld then
@@ -144,7 +144,8 @@ local function step(model: Model, d: Dummy, now: number)
 		d.releaseAt = nil
 		CombatService.act(model, "Release")
 	end
-	if m == "Idle" then
+	-- turning a ragdoll to face someone would stand it back up
+	if m == "Idle" or combat.downed then
 		return
 	end
 

@@ -12,6 +12,7 @@ local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local Types = require(ReplicatedStorage.Shared.Types)
 local Hitbox = require(script.Parent.Parent.Hitbox)
 local NpcAnimator = require(script.Parent.Parent.NpcAnimator)
+local Ragdoll = require(script.Parent.Parent.Ragdoll)
 local RateLimit = require(script.Parent.Parent.RateLimit)
 local StateService = require(script.Parent.StateService)
 
@@ -63,11 +64,39 @@ local function changePosture(char: Model, amount: number, wait: number?): number
 end
 
 -- health floors at 1, combat never kills
-local function damage(char: Model, amount: number)
+-- everything the character was doing stops. a held block stays held, so it comes back on getting up like after a stun
+local function down(char: Model, st: CharState, now: number)
+	local combat = st.combat
+	combat.downed = true
+	combat.downedAt = now
+	combat.swing = nil
+	combat.combo = 0
+	combat.parryUntil = 0
+	active[char] = true
+	Ragdoll.set(char, true)
+end
+
+-- health floors at 1 so the Humanoid never dies. a hit that takes it there downs the character, chip through a block
+-- only floors it
+local function damage(char: Model, st: CharState, amount: number, canDown: boolean, now: number)
 	local hum = char:FindFirstChildOfClass("Humanoid")
-	if hum and amount > 0 then
-		hum.Health = math.max(1, hum.Health - amount)
+	if not hum or amount <= 0 then
+		return
 	end
+	hum.Health = math.max(1, hum.Health - amount)
+	if canDown and hum.Health <= 1 then
+		down(char, st, now)
+	end
+end
+
+local function getUp(char: Model, st: CharState)
+	st.combat.downed = false
+	Ragdoll.set(char, false)
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if hum then
+		hum.Health = math.max(hum.Health, hum.MaxHealth * Config.DOWNED_HEALTH)
+	end
+	changePosture(char, Config.POSTURE_MAX)
 end
 
 -- a stun interrupts whatever the character was doing, and the later of two stuns wins
@@ -196,14 +225,14 @@ local function resolve(
 		local cost = def.posture * (if swing.isDelayed then Config.DELAY_POSTURE else 1)
 		local wait = if swing.isDelayed then Config.DELAY_EXHAUST else Config.POSTURE_REGEN_DELAY
 		if not def.isGuardBreak and changePosture(target, -cost, wait) > 0 then
-			damage(target, def.damage * def.chip * swing.power)
+			damage(target, st, def.damage * def.chip * swing.power, false, now)
 			shove(target, root, from, swing.lunge)
 			return "Blocked"
 		end
 		combat.brokenUntil = now + Config.POSTURE_BREAK_TIME
 		stun(st, combat.brokenUntil)
 		changePosture(target, Config.POSTURE_MAX, Config.POSTURE_BREAK_TIME)
-		damage(target, def.damage * swing.power)
+		damage(target, st, def.damage * swing.power, true, now)
 		shove(target, root, from, swing.lunge)
 		return "Broken"
 	end
@@ -216,7 +245,7 @@ local function resolve(
 		-- the client predicts its own parries, so it has to know which stuns it can't parry out of
 		target:SetAttribute("LockedUntil", combat.lockedUntil)
 	end
-	damage(target, def.damage * swing.power)
+	damage(target, st, def.damage * swing.power, true, now)
 	-- a delayed light doesn't knock back, so a delayed finisher carries the string on
 	if def.knockback and not (swing.isDelayed and swing.kind == "Light") then
 		knockback(target, root, from, def.knockback)
@@ -452,8 +481,12 @@ local function step()
 			active[char] = nil
 			continue
 		end
+		local combat = st.combat
+		if combat.downed and now >= combat.downedAt + Config.DOWNED_TIME then
+			getUp(char, st)
+		end
 
-		local swing = st.combat.swing
+		local swing = combat.swing
 		if swing then
 			advance(char, st, swing, now)
 		end
@@ -469,9 +502,9 @@ local function step()
 		settle(st, now)
 		publish(char)
 
-		local combat = st.combat
 		if
-			not combat.swing
+			not combat.downed
+			and not combat.swing
 			and not combat.isBlockHeld
 			and now >= combat.stunnedUntil
 			and now >= combat.brokenUntil
@@ -524,6 +557,7 @@ end
 function CombatService.add(char: Model)
 	characters[char] = true
 	Hitbox.add(char)
+	Ragdoll.add(char)
 	char:SetAttribute("CombatState", "Idle")
 	char:SetAttribute("Posture", Config.POSTURE_MAX)
 	char:SetAttribute("LockedUntil", 0)
@@ -534,6 +568,7 @@ end
 function CombatService.remove(char: Model)
 	characters[char] = nil
 	Hitbox.remove(char)
+	Ragdoll.remove(char)
 	active[char] = nil
 end
 

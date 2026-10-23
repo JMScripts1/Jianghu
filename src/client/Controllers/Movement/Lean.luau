@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local MoveDefs = require(ReplicatedStorage.Shared.MoveDefs)
 local Types = require(ReplicatedStorage.Shared.Types)
+local CombatController = require(script.Parent.Parent.CombatController)
 local Context = require(script.Parent.Context)
 
 type Ctx = Context.Ctx
@@ -20,7 +21,8 @@ local Lean = {}
 function Lean.update(c: Ctx, dt: number)
 	local state: Types.MoveState = c.state
 	local target = Vector2.zero
-	if MoveDefs[state].group ~= "Wall" and not OFF[state] then
+	-- nothing to lean into while combat holds the character still, downed or posture broken
+	if MoveDefs[state].group ~= "Wall" and not OFF[state] and CombatController.speedCap(c) > 0 then
 		local dir = c.root.CFrame:VectorToObjectSpace(c.hum.MoveDirection)
 		target = Vector2.new(-dir.Z, dir.X) * (if state == "Run" then SPRINT else WALK)
 	end

@@ -9,8 +9,9 @@ local Types = require(script.Parent.Types)
 local CombatAnims: { [Types.Reaction]: Types.ReactionAnims } = {
 	Parrying = "rbxassetid://111421663323177",
 	Blocking = "rbxassetid://120953089487237",
-	Stunned = "",
-	PostureBroken = "",
+	Stunned = "rbxassetid://136120702508483",
+	PostureBroken = "rbxassetid://136120702508483",
+	-- a downed character is a ragdoll, see Ragdoll. its pose waits for grips
 	Downed = "",
 	-- authored at Action2, a priority above the loops and swings, so they take over instead of blending in
 	Parry = "",
