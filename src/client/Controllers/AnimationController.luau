@@ -120,9 +120,11 @@ function AnimationController.load(c: Ctx)
 		end)
 	end
 
-	-- the back dash's burst is keyed to its animation
-	c.trove:Connect(tracks[BACK_DASH]:GetMarkerReachedSignal(BOOST_MARKER), function()
+	-- the back dash's burst is keyed to its animation, and the animation slows back down from the quick backstep
+	local backDash = tracks[BACK_DASH]
+	c.trove:Connect(backDash:GetMarkerReachedSignal(BOOST_MARKER), function()
 		Dash.boost(c)
+		backDash:AdjustSpeed(backDash.Length / Config.BACK_DASH_ANIM_TIME)
 	end)
 
 	c.trove:Add(function()
@@ -145,8 +147,8 @@ local function dash(name: Types.AnimName)
 		current:Stop(Config.ANIM_FADE)
 	end
 	track:Play(Config.ANIM_FADE)
-	if name == "DashB" and track.Length > 0 then
-		track:AdjustSpeed(track.Length / Config.BACK_DASH_ANIM_TIME)
+	if name == "DashB" then
+		track:AdjustSpeed(Config.BACK_DASH_MARKER / Config.BACK_DASH_WINDUP)
 	end
 end
 

@@ -103,6 +103,10 @@ return table.freeze({
 	-- the backstep stops here if the marker hasn't fired, so the marker has to come before it
 	BACK_DASH_TIME = 0.5,
 	BACK_DASH_BOOST_TIME = 0.2,
+	-- the DashB animation's Boost marker is on frame 35 at 60 fps. the backstep up to it plays in BACK_DASH_WINDUP,
+	-- the rest at the rate that would stretch the whole animation to BACK_DASH_ANIM_TIME
+	BACK_DASH_MARKER = 35 / 60,
+	BACK_DASH_WINDUP = 0.3,
 	BACK_DASH_ANIM_TIME = 1,
 	-- a forward dash in the air bursts at AIR_DASH_SPEED, then carries momentum plus AIR_DASH_GAIN, at least AIR_DASH_EXIT
 	AIR_DASH_SPEED = 70,
