@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Probes = require(ReplicatedStorage.Shared.Probes)
 local Types = require(ReplicatedStorage.Shared.Types)
+local CombatController = require(script.Parent.Parent.Parent.CombatController)
 local Context = require(script.Parent.Parent.Context)
 local InputController = require(script.Parent.Parent.Parent.InputController)
 
@@ -34,12 +35,15 @@ end
 function Ground.pick(c: Ctx): Types.MoveState
 	local isMoving = c.hum.MoveDirection.Magnitude > 0
 	local isStuck = LOW[c.state] and Probes.ceiling(c.root) ~= nil
+	local standing: Types.MoveState = if isMoving then "Walk" else "Idle"
+	local want: Types.MoveState = standing
 	if InputController.isDown("Crouch") or isStuck then
-		return if isMoving then "CrouchWalk" else "CrouchIdle"
+		want = if isMoving then "CrouchWalk" else "CrouchIdle"
 	elseif isMoving and InputController.isDown("Sprint") then
-		return "Run"
+		want = "Run"
 	end
-	return if isMoving then "Walk" else "Idle"
+	-- a swing, a block or a stun rules out a run or a crouch, standing is always left
+	return if CombatController.allows(c, want) then want else standing
 end
 
 function Ground.update(c: Ctx, dt: number): Types.MoveState?
@@ -67,6 +71,7 @@ function Ground.update(c: Ctx, dt: number): Types.MoveState?
 		hum:Move(Context.look(c))
 		hum.WalkSpeed = math.max(hum.WalkSpeed, Config.ROLL_SPEED)
 	end
+	hum.WalkSpeed = math.min(hum.WalkSpeed, CombatController.speedCap(c))
 
 	local isCrouched = state == "CrouchIdle" or state == "CrouchWalk"
 	if not Ground.isGrounded(c) then

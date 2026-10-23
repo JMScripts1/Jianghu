@@ -85,8 +85,6 @@ return table.freeze({
 	LEDGE_LOW = -2.5,
 	LEDGE_HIGH = 6.5,
 	LEDGE_DEPTH = 1.5,
-	-- seconds after letting go of a cling or boost that Mantle still works from Fall
-	LEDGE_GRACE = 0.3,
 	-- the Mantle animation's length, it plants its hands at the halfway point
 	MANTLE_TIME = 0.4,
 	-- where the root sits when the hands land, above the lip and out from the wall face
@@ -141,7 +139,6 @@ return table.freeze({
 		CROUCH = Enum.KeyCode.LeftControl,
 		JUMP = Enum.KeyCode.Space,
 		DASH = Enum.KeyCode.Q,
-		MANTLE = Enum.KeyCode.F,
 		LIGHT = Enum.UserInputType.MouseButton1,
 		HEAVY = Enum.KeyCode.R,
 		BLOCK = Enum.KeyCode.F,

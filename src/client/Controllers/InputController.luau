@@ -8,7 +8,7 @@ local UserInputService = game:GetService("UserInputService")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Types = require(ReplicatedStorage.Shared.Types)
 
-export type Action = "Sprint" | "Crouch" | "Jump" | "Dash" | "Mantle"
+export type Action = "Sprint" | "Crouch" | "Jump" | "Dash" | "Light" | "Heavy" | "Block"
 
 local SPRINT: Action = "Sprint"
 local CROUCH: Action = "Crouch"
@@ -16,11 +16,14 @@ local CROUCH: Action = "Crouch"
 -- above the default controls and sunk, so Space never jumps the humanoid
 local PRIORITY = Enum.ContextActionPriority.High.Value
 
-local BINDS: { [Action]: Enum.KeyCode } = {
+-- Light is the mouse button, the rest are keys
+local BINDS: { [Action]: Enum.KeyCode | Enum.UserInputType } = {
 	Crouch = Config.KEYS.CROUCH,
 	Jump = Config.KEYS.JUMP,
 	Dash = Config.KEYS.DASH,
-	Mantle = Config.KEYS.MANTLE,
+	Light = Config.KEYS.LIGHT,
+	Heavy = Config.KEYS.HEAVY,
+	Block = Config.KEYS.BLOCK,
 }
 
 -- first held key wins, so W and D together is a forward dash

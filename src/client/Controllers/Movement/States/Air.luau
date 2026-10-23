@@ -7,6 +7,7 @@ local Config = require(ReplicatedStorage.Shared.Config)
 local MoveDefs = require(ReplicatedStorage.Shared.MoveDefs)
 local Probes = require(ReplicatedStorage.Shared.Probes)
 local Types = require(ReplicatedStorage.Shared.Types)
+local CombatController = require(script.Parent.Parent.Parent.CombatController)
 local Context = require(script.Parent.Parent.Context)
 local InputController = require(script.Parent.Parent.Parent.InputController)
 local Ground = require(script.Parent.Ground)
@@ -17,8 +18,6 @@ type Ctx = Context.Ctx
 -- still going up faster than this means the ground under us is the one we just left
 local RISING = 1
 local TURN_RATE = math.rad(Config.AIR_TURN_RATE)
-
-local CLINGS: { [Types.MoveState]: true } = { WallCling = true, WallBoost = true }
 
 type Launch = { gain: number, power: number, lift: Vector3, time: number }
 
@@ -120,12 +119,6 @@ function Air.update(c: Ctx, dt: number): Types.MoveState?
 		end
 	end
 
-	-- a late press just after letting go of a cling or boost still catches the ledge
-	local isLetGo = c.state == "Fall" and CLINGS[c.prev] and elapsed < Config.LEDGE_GRACE
-	if isLetGo and InputController.take("Mantle") and Mantle.findLedge(c) then
-		return "Mantle"
-	end
-
 	-- a ledge in reach wins over a wall, and a wall over the air jump
 	if InputController.take("Jump") then
 		if Mantle.findLedge(c) then
@@ -148,7 +141,7 @@ function Air.update(c: Ctx, dt: number): Types.MoveState?
 		c.heading = if c.heading == Vector3.zero then want else Context.turn(c.heading, want, TURN_RATE * dt)
 	end
 	c.hum:Move(c.heading)
-	c.hum.WalkSpeed = math.max(c.momentum, Config.WALK_SPEED)
+	c.hum.WalkSpeed = math.min(math.max(c.momentum, Config.WALK_SPEED), CombatController.speedCap(c))
 	return nil
 end
 

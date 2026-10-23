@@ -41,7 +41,7 @@ function WallCling.update(c: Ctx): Types.MoveState?
 	end
 	-- space pulls up onto a ledge in reach before it boosts or grabs another wall
 	local isJump = InputController.take("Jump")
-	if (isJump or InputController.take("Mantle")) and Mantle.findLedge(c) then
+	if isJump and Mantle.findLedge(c) then
 		return "Mantle"
 	end
 	local elapsed = os.clock() - c.since

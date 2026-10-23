@@ -1,0 +1,361 @@
+--!strict
+-- Jianghu by Ruha.luau (github.com/JMScripts1)
+-- MIT licensed, see LICENSE. Feel free to remove this header.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local AttackDefs = require(ReplicatedStorage.Shared.AttackDefs)
+local CombatAnims = require(ReplicatedStorage.Shared.CombatAnims)
+local CombatDefs = require(ReplicatedStorage.Shared.CombatDefs)
+local Config = require(ReplicatedStorage.Shared.Config)
+local MoveDefs = require(ReplicatedStorage.Shared.MoveDefs)
+local Remotes = require(ReplicatedStorage.Shared.Remotes)
+local Types = require(ReplicatedStorage.Shared.Types)
+local WeaponDefs = require(ReplicatedStorage.Shared.WeaponDefs)
+local Context = require(script.Parent.Movement.Context)
+local InputController = require(script.Parent.InputController)
+
+type Ctx = Context.Ctx
+
+-- the client's copy of its own swing, on its own clock
+type Swing = {
+	id: Types.AttackId,
+	button: InputController.Action,
+	hitAt: number,
+	endsAt: number,
+	isHeld: boolean,
+	-- studs a second pushed forward at the hit, 0 once it has gone
+	lunge: number,
+	isAir: boolean,
+	track: AnimationTrack?,
+}
+
+type Push = { velocity: Vector3, untilAt: number }
+
+-- typed so the old solver takes it as a key of cooldownUntil
+local PARRY: Types.CombatCooldown = "Parry"
+
+-- being hit can't be predicted, these only ever come from the server
+local FROM_SERVER: { [Types.CombatState]: true } = { Stunned = true, PostureBroken = true, Downed = true }
+
+local SPEED_CAPS: { [Types.CombatState]: number } = {
+	Attacking = Config.ATTACK_WALK_SPEED,
+	Parrying = Config.BLOCK_WALK_SPEED,
+	Blocking = Config.BLOCK_WALK_SPEED,
+	Stunned = Config.STUN_WALK_SPEED,
+	PostureBroken = 0,
+	Downed = 0,
+}
+
+-- turn the attributes back into names, anything else is ignored
+local BY_NAME: { [string]: Types.CombatState } = {}
+for state: Types.CombatState in CombatDefs.states do
+	BY_NAME[state] = state
+end
+local BY_WEAPON: { [string]: Types.WeaponId } = {}
+for weapon: Types.WeaponId in WeaponDefs do
+	BY_WEAPON[weapon] = weapon
+end
+
+local player = Players.LocalPlayer
+
+local CombatController = {}
+
+local animations: { [string]: Animation } = {}
+local tracks: { [Types.AttackId]: AnimationTrack } = {}
+local reactions: { [Types.CombatState]: AnimationTrack } = {}
+local reacting: AnimationTrack? = nil
+
+local swing: Swing? = nil
+local isQueued = false
+local combo = 0
+local comboAt = 0
+local cooldownUntil: { [Types.CombatCooldown]: number } = {}
+local hasAirAttacked = false
+local isBlockHeld = false
+local parryUntil = 0
+-- a parry pressed while stunned is still a stun to movement, see StateService.canMove
+local isParryOutOfStun = false
+local push: Push? = nil
+
+local function animation(id: string): Animation
+	local made = animations[id]
+	if made then
+		return made
+	end
+	local anim = Instance.new("Animation")
+	anim.AnimationId = id
+	animations[id] = anim
+	return anim
+end
+
+local function serverState(c: Ctx): Types.CombatState
+	local value = c.char:GetAttribute("CombatState")
+	return if typeof(value) == "string" and BY_NAME[value] then BY_NAME[value] else "Idle"
+end
+
+-- the client's own swings and blocks are predicted, being hit only comes from the server
+local function state(c: Ctx): Types.CombatState
+	local server: Types.CombatState = serverState(c)
+	if FROM_SERVER[server] then
+		return server
+	elseif os.clock() < parryUntil then
+		return "Parrying"
+	elseif swing then
+		return "Attacking"
+	elseif isBlockHeld and CombatDefs.guard[c.state] then
+		return "Blocking"
+	end
+	return "Idle"
+end
+
+-- what movement and walk speed go by, where a parry out of stun is still a stun
+local function rowState(c: Ctx): Types.CombatState
+	local current: Types.CombatState = state(c)
+	return if current == "Parrying" and isParryOutOfStun then "Stunned" else current
+end
+
+local function cancel()
+	local current = swing
+	if current and current.track then
+		current.track:Stop(Config.ANIM_FADE)
+	end
+	swing = nil
+	isQueued = false
+	combo = 0
+end
+
+-- the server's copy is the truth, this only picks which attack to predict
+local function weaponOf(c: Ctx): Types.WeaponId
+	local value = c.char:GetAttribute("Weapon")
+	return if typeof(value) == "string" and BY_WEAPON[value] then BY_WEAPON[value] else CombatDefs.defaultWeapon
+end
+
+local function attack(c: Ctx, action: Types.CombatAction, button: InputController.Action, now: number)
+	if not CombatDefs.states[state(c)].actions[action] or not CombatDefs.from[action][c.state] then
+		return
+	end
+	local picked: Types.Pick? = CombatDefs.pick(
+		weaponOf(c),
+		action,
+		c.state,
+		combo,
+		now - comboAt,
+		hasAirAttacked,
+		function(name: Types.CombatCooldown): boolean
+			return now >= (cooldownUntil[name] or 0)
+		end
+	)
+	if not picked then
+		return
+	end
+	local id: Types.AttackId = picked.id
+	combo = picked.combo
+	if picked.cooldown then
+		cooldownUntil[picked.cooldown] = now + CombatDefs.cooldowns[picked.cooldown]
+	end
+	if picked.kind == "Air" then
+		hasAirAttacked = true
+	end
+
+	local def = AttackDefs[id]
+	local track = tracks[id]
+	if track then
+		track:Play(Config.ANIM_FADE)
+	end
+
+	local hitAt = now + def.windup
+	swing = {
+		id = id,
+		button = button,
+		hitAt = hitAt,
+		endsAt = hitAt + def.active + def.recovery,
+		isHeld = true,
+		-- the run drops to a walk as the swing starts, so the lunge keeps the momentum it came in with
+		lunge = if picked.kind == "Run" then c.momentum * Config.RUN_ATTACK_LUNGE else def.lunge or 0,
+		isAir = picked.kind == "Air",
+		track = track,
+	}
+	Remotes.Combat:FireServer(action)
+end
+
+-- the swing's end is what the next light's combo counts from, and a light pressed near it starts right then
+local function settle(c: Ctx, now: number)
+	local current = swing
+	if not current or now < current.endsAt then
+		return
+	end
+	swing = nil
+	comboAt = current.endsAt
+	if isQueued then
+		isQueued = false
+		attack(c, "Light", "Light", now)
+	end
+end
+
+-- the same rule as CombatService: a fresh press where a block works parries, so does one out of a stun
+local function block(c: Ctx, now: number)
+	local held = InputController.isDown("Block")
+	if held == isBlockHeld then
+		return
+	end
+	local before = state(c)
+	isBlockHeld = held
+	if not held then
+		Remotes.Combat:FireServer("Unblock")
+		return
+	end
+
+	local canParry = before == "Idle" or before == "Stunned"
+	if canParry and CombatDefs.guard[c.state] and now >= (cooldownUntil[PARRY] or 0) then
+		parryUntil = now + Config.PARRY_WINDOW
+		cooldownUntil[PARRY] = now + CombatDefs.cooldowns[PARRY]
+		isParryOutOfStun = before == "Stunned"
+	end
+	Remotes.Combat:FireServer("Block")
+end
+
+-- the lunge, the air attack's height hold and knockback all drive the root through the movement mover
+local function move(c: Ctx, now: number)
+	local current = swing
+	if current and current.lunge > 0 and now >= current.hitAt then
+		push = { velocity = Context.look(c) * current.lunge, untilAt = now + Config.LUNGE_TIME }
+		current.lunge = 0
+	end
+	if current and current.isAir and now < current.hitAt then
+		local v = c.root.AssemblyLinearVelocity
+		c.root.AssemblyLinearVelocity = Vector3.new(v.X, 0, v.Z)
+	end
+
+	local p = push
+	if p and now < p.untilAt then
+		Context.glide(c, p.velocity)
+	elseif p then
+		push = nil
+		-- a dash out of a block owns the mover by now
+		if not MoveDefs[c.state].isDash then
+			c.lv.Enabled = false
+		end
+	end
+end
+
+local function react(c: Ctx)
+	local track = reactions[state(c)]
+	if track == reacting then
+		return
+	end
+	if reacting then
+		reacting:Stop(Config.ANIM_FADE)
+	end
+	reacting = track
+	if track then
+		track:Play(Config.ANIM_FADE)
+	end
+end
+
+-- a landing is never refused, see StateService.canMove
+function CombatController.allows(c: Ctx, to: Types.MoveState): boolean
+	if MoveDefs[to].group == "Grounded" and MoveDefs[c.state].group ~= "Grounded" then
+		return true
+	end
+	return CombatDefs.states[rowState(c)].moves[to] == true
+end
+
+function CombatController.speedCap(c: Ctx): number
+	return SPEED_CAPS[rowState(c)] or math.huge
+end
+
+function CombatController.load(c: Ctx)
+	swing = nil
+	isQueued = false
+	combo = 0
+	comboAt = 0
+	table.clear(cooldownUntil)
+	hasAirAttacked = false
+	isBlockHeld = false
+	parryUntil = 0
+	isParryOutOfStun = false
+	push = nil
+
+	local animator = c.hum:WaitForChild("Animator") :: Animator
+	for id: Types.AttackId, def in AttackDefs do
+		if def.anim ~= "" then
+			tracks[id] = animator:LoadAnimation(animation(def.anim))
+		end
+	end
+	for combatState: Types.CombatState, id in CombatAnims do
+		if id ~= "" then
+			reactions[combatState] = animator:LoadAnimation(animation(id))
+		end
+	end
+
+	c.trove:Add(function()
+		table.clear(tracks)
+		table.clear(reactions)
+		reacting = nil
+		swing = nil
+		push = nil
+	end)
+end
+
+function CombatController.step(c: Ctx)
+	local now = os.clock()
+	if FROM_SERVER[serverState(c)] and swing then
+		cancel()
+	end
+	if now >= parryUntil then
+		isParryOutOfStun = false
+	end
+	if MoveDefs[c.state].group == "Grounded" then
+		hasAirAttacked = false
+	end
+	settle(c, now)
+
+	if InputController.take("Light") then
+		local current = swing
+		if not current then
+			attack(c, "Light", "Light", now)
+		elseif current.endsAt - now <= Config.INPUT_BUFFER then
+			isQueued = true
+		end
+	end
+	if InputController.take("Heavy") then
+		attack(c, "Heavy", "Heavy", now)
+	end
+
+	local current = swing
+	if current and current.isHeld and not InputController.isDown(current.button) then
+		current.isHeld = false
+		Remotes.Combat:FireServer("Release")
+	end
+
+	block(c, now)
+	move(c, now)
+	react(c)
+end
+
+-- a denial for an action the client already replaced is for one the server judged on its own, so only the live
+-- swing is undone
+Remotes.CombatDeny.OnClientEvent:Connect(function(action: string)
+	if Config.DEBUG then
+		print("combat denied", action)
+	end
+	local current = swing
+	if current and current.button == action then
+		cancel()
+	end
+end)
+
+-- the victim's own client moves its character, so the server asks it to fly
+Remotes.Knockback.OnClientEvent:Connect(function(dir: Vector3, speed: number)
+	push = { velocity = dir * speed, untilAt = os.clock() + Config.KNOCKBACK_TIME }
+end)
+
+-- a good parry starts the cooldown over on the server, so it does here too
+Remotes.CombatFx.OnClientEvent:Connect(function(_attacker: Model, target: Model, _id: string, result: string)
+	if result == "Parried" and target == player.Character then
+		cooldownUntil[PARRY] = 0
+	end
+end)
+
+return CombatController

@@ -10,6 +10,7 @@ local MoveDefs = require(ReplicatedStorage.Shared.MoveDefs)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local Types = require(ReplicatedStorage.Shared.Types)
 local AnimationController = require(script.Parent.AnimationController)
+local CombatController = require(script.Parent.CombatController)
 local EffectController = require(script.Parent.EffectController)
 local InputController = require(script.Parent.InputController)
 local Context = require(script.Parent.Movement.Context)
@@ -146,7 +147,7 @@ end
 
 function MovementController.request(to: Types.MoveState): boolean
 	local c = ctx
-	if not c or not MoveDefs[c.state].to[to] or not Context.isReady(c, to) then
+	if not c or not MoveDefs[c.state].to[to] or not Context.isReady(c, to) or not CombatController.allows(c, to) then
 		return false
 	end
 	switch(c, to)
@@ -157,6 +158,13 @@ local function step(c: Ctx, dt: number)
 	-- the split cooldowns let a side dash chain into a front one, but only on the ground. the air gets one dash
 	if InputController.take("Dash") and not c.hasAirDashed then
 		MovementController.request(InputController.dash())
+	end
+
+	CombatController.step(c)
+	-- a swing, a block or a stun can rule out what the character is doing, so it drops to what it can do.
+	-- this is also how a stun cuts a dash short
+	if not CombatController.allows(c, c.state) then
+		MovementController.request(if Ground.isGrounded(c) then Ground.pick(c) else "Fall")
 	end
 
 	local nextState: Types.MoveState? = STATES[c.state].update(c, dt)
@@ -200,6 +208,7 @@ local function onCharacterAdded(char: Model)
 	AnimationController.load(c)
 	AnimationController.play(c)
 	EffectController.load(c)
+	CombatController.load(c)
 	ctx = c
 	-- the server starts every character in Walk
 	lastSent = "Walk"

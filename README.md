@@ -32,7 +32,7 @@ Dash is four states, one per direction, and it doubles as the dodge: the dash gr
 | Slide   | Ctrl while sprinting                                                                      |
 | Crouch  | Ctrl while standing or walking, toggles. Jump while crouched stands up                    |
 | Jump    | Space. Becomes a double jump, wall run, wall cling, leap, boost or mantle depending on state |
-| Mantle  | Space or F near a ledge, in the air or on a wall                                          |
+| Mantle  | Space near a ledge, in the air or on a wall                                               |
 | Dash    | Q, direction from the movement key held. No key held dashes back                         |
 
 ### Momentum
