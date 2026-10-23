@@ -112,7 +112,7 @@ end
 
 -- steps keep time with the animation, not the speed, and the floor is only read when one is due
 local function step(walker: Walker, dt: number)
-	local state = walker.state()
+	local state: Types.MoveState? = walker.state()
 	local interval = if state then STEP_TIMES[MoveDefs[state].wire] else nil
 	local v = walker.root.AssemblyLinearVelocity
 	if not interval or Vector3.new(v.X, 0, v.Z).Magnitude < MIN_STEP_SPEED then
