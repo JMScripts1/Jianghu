@@ -15,6 +15,8 @@ local SLOTS: { [string]: true } = {
 	LedgeLeap4 = true,
 	RampLeap = true,
 	AirDash = true,
+	DashCancelLeft = true,
+	DashCancelRight = true,
 }
 for state in MoveDefs do
 	SLOTS[state] = true
@@ -32,7 +34,7 @@ local Anims: { [Types.AnimName]: string } = {
 	WallRunLeft = "rbxassetid://117494238825220",
 	WallRunRight = "rbxassetid://136658778996572",
 	Fall = "rbxassetid://127049077162885",
-	DoubleJump = "rbxassetid://84083501909606",
+	DoubleJump = "rbxassetid://139618742088489",
 	WallCling = "rbxassetid://130191404882056",
 	WallBoost = "rbxassetid://113668530383382",
 	WallLeapLeft = "rbxassetid://78730538514260",
@@ -43,6 +45,8 @@ local Anims: { [Types.AnimName]: string } = {
 	DashL = "rbxassetid://90778754431207",
 	DashR = "rbxassetid://99540956567959",
 	AirDash = "rbxassetid://133986443424200",
+	DashCancelLeft = "rbxassetid://131903606548694",
+	DashCancelRight = "rbxassetid://121599177700450",
 	Roll = "rbxassetid://120431676333500",
 	LedgeLeap = "rbxassetid://90219606237010",
 	LedgeLeap2 = "rbxassetid://120588070311007",

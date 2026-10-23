@@ -143,6 +143,7 @@ return table.freeze({
 		CROUCH = Enum.KeyCode.LeftControl,
 		JUMP = Enum.KeyCode.Space,
 		DASH = Enum.KeyCode.Q,
+		DASH_CANCEL = Enum.UserInputType.MouseButton2,
 		LIGHT = Enum.UserInputType.MouseButton1,
 		HEAVY = Enum.KeyCode.R,
 		BLOCK = Enum.KeyCode.F,

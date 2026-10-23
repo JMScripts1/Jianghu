@@ -45,8 +45,8 @@ for name: Types.AnimName, id in Anims do
 	animations[name] = anim
 end
 
--- the air dash is DashF in the air with its own animation
-local DASH_ANIMS: { Types.AnimName } = { "AirDash" }
+-- the air dash is DashF in the air with its own animation, and a cancel plays the way a dash does
+local DASH_ANIMS: { Types.AnimName } = { "AirDash", "DashCancelLeft", "DashCancelRight" }
 for state: Types.MoveState, def in MoveDefs do
 	if def.isDash then
 		table.insert(DASH_ANIMS, state)
@@ -190,6 +190,11 @@ function AnimationController.stopDash()
 	if dashing then
 		dashing:Stop(Config.ANIM_FADE)
 	end
+end
+
+-- the dash's animation hands over to the cancel's, which a swing cuts like any dash animation, see stopDash
+function AnimationController.cancelDash(isLeft: boolean)
+	dash(if isLeft then "DashCancelLeft" else "DashCancelRight")
 end
 
 function AnimationController.roll()

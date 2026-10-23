@@ -8,10 +8,11 @@ local UserInputService = game:GetService("UserInputService")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Types = require(ReplicatedStorage.Shared.Types)
 
-export type Action = "Sprint" | "Crouch" | "Jump" | "Dash" | "Light" | "Heavy" | "Block"
+export type Action = "Sprint" | "Crouch" | "Jump" | "Dash" | "DashCancel" | "Light" | "Heavy" | "Block"
 
 local SPRINT: Action = "Sprint"
 local CROUCH: Action = "Crouch"
+local DASH_CANCEL: Action = "DashCancel"
 
 -- above the default controls and sunk, so Space never jumps the humanoid
 local PRIORITY = Enum.ContextActionPriority.High.Value
@@ -80,9 +81,14 @@ for action: Action, key in BINDS do
 	end, false, PRIORITY, key)
 end
 
--- the sprint key also walks, so it's watched without sinking it
+-- the sprint key also walks and right mouse also turns the camera, so both are watched without sinking them
 UserInputService.InputBegan:Connect(function(input: InputObject, isProcessed: boolean)
-	if isProcessed or input.KeyCode ~= Config.KEYS.SPRINT then
+	if isProcessed then
+		return
+	elseif input.UserInputType == Config.KEYS.DASH_CANCEL then
+		pressed[DASH_CANCEL] = true
+		return
+	elseif input.KeyCode ~= Config.KEYS.SPRINT then
 		return
 	end
 	local now = os.clock()

@@ -159,6 +159,13 @@ local function step(c: Ctx, dt: number)
 	if InputController.take("Dash") and not c.hasAirDashed then
 		MovementController.request(InputController.dash())
 	end
+	-- right mouse ends a dash early so a swing can start sooner. left and back dashes roll out left, the rest right
+	if InputController.take("DashCancel") and MoveDefs[c.state].isDash then
+		local isLeft = c.state == "DashL" or c.state == "DashB"
+		if MovementController.request(if Ground.isGrounded(c) then Ground.pick(c) else "Fall") then
+			AnimationController.cancelDash(isLeft)
+		end
+	end
 
 	if CombatController.step(c) then
 		AnimationController.stopDash()

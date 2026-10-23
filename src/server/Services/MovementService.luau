@@ -165,6 +165,10 @@ local function apply(
 			move.cooldownUntil[def.shares] = now + def.cooldown
 		end
 	end
+	-- leaving a dash early is a cancel, and it gives up the rest of the iframes so it can't swing out of them
+	if MoveDefs[from].isDash then
+		st.dash.dodgeUntil = math.min(st.dash.dodgeUntil, now)
+	end
 	if def.isDash then
 		st.dash.dodgeUntil = now + Config.DODGE_TIME
 	end
