@@ -16,48 +16,54 @@ A parry based, momentum driven Murim action RPG for Roblox. Combat is about timi
 
 Movement is a state machine with three groups. Each group holds the states a character can be in.
 
-| Group    | States                                                  |
-| -------- | ------------------------------------------------------- |
-| Grounded | Idle, Walk, Run, Slide, Crouch Idle, Crouch Walk, Low Vault |
-| Airborne | Jump, Double Jump, Slide Jump, Fall                     |
-| Wall     | Wall Run, Wall Leap, Wall Cling, Wall Boost, Mid Vault  |
+| Group    | States                                                      |
+| -------- | ----------------------------------------------------------- |
+| Grounded | Idle, Walk, Run, Slide, Crouch Idle, Crouch Walk            |
+| Airborne | Jump, Double Jump, Slide Jump, Ledge Leap, Fall, the dashes |
+| Wall     | Wall Run, Wall Leap, Wall Cling, Wall Boost, Mantle         |
 
-Dash is not a state. It is an action available from most grounded and airborne states, in four directions, and it doubles as the dodge: the dash grants the invincibility frames.
+Dash is four states, one per direction, and it doubles as the dodge: the dash grants the invincibility frames. Nothing cuts a dash short, and it hands over to whatever the character is doing once it ends. Front and back share one cooldown and the sides share another, so a side dash chains into a front one on the ground. In the air there is one dash until landing, and a wall run or wall boost gives it back. A ground dash that carries off a ledge uses it. A front dash in the air is an air dash: a faster burst that rises a little and adds to momentum.
 
 ### Controls
 
-| Action     | Input                                                    |
-| ---------- | -------------------------------------------------------- |
-| Sprint     | Double tap W, held while W stays down                    |
-| Slide      | Ctrl while sprinting                                     |
-| Crouch     | Ctrl while standing or walking, toggles                  |
-| Jump       | Space. Becomes a double jump, wall run, wall cling, leap or boost depending on state |
-| Mid vault  | Space in a wall cling or wall boost, near a ledge        |
-| Dash       | Q                                                        |
-| Low vault  | Automatic when running into a low obstacle               |
+| Action  | Input                                                                                     |
+| ------- | ----------------------------------------------------------------------------------------- |
+| Sprint  | Double tap W, held while W stays down                                                     |
+| Slide   | Ctrl while sprinting                                                                      |
+| Crouch  | Ctrl while standing or walking, toggles. Jump while crouched stands up                    |
+| Jump    | Space. Becomes a double jump, wall run, wall cling, leap, boost or mantle depending on state |
+| Mantle  | Space or F near a ledge, in the air or on a wall                                          |
+| Dash    | Q, direction from the movement key held. No key held dashes back                         |
 
 ### Momentum
 
-Momentum is carried horizontal speed. Parkour moves add to it and standing or walking lets it decay, so stringing moves together is what builds speed.
+Momentum is carried horizontal speed. Parkour moves add to it and walking drops it back to walking speed, so stringing moves together is what builds speed.
 
 - Sliding boosts speed, and sliding downhill keeps adding to it.
-- Slide jumps, wall leaps and low vaults each add a burst.
+- A slide jump launches along the slide. One that clears a drop just after takeoff becomes a ledge leap, a stronger launch that adds momentum.
+- Wall leaps and air dashes each add a burst, and a wall cling adds a little.
 - Repeating the same move gives less each time.
-- A mid vault cancels momentum.
-- Momentum is capped, and exposed to animations and effects as three tiers.
+- Just running holds momentum for a couple of seconds, then it tapers back to run speed.
+- A mantle and every other dash leave momentum unchanged.
+- Momentum is capped.
+- A big enough drop lands in a roll that carries the character forward.
 
 ### Wall movement
 
-A jump in the air next to a wall starts a wall run when you are moving along it, or a wall cling when you are facing it. A wall run ends in a leap away from the wall. A cling ends in a boost straight up it, or a mid vault if there is a ledge in reach. A wall cannot be grabbed twice in a row, so chains have to move between walls.
+A jump in the air next to a wall starts a wall run when you are moving along it, or a wall cling when you are facing it. A wall run ends in a leap away from the wall. A cling ends in a boost straight up it. A ledge in reach always wins: Space pulls up onto it instead. A wall takes one cling and one run before landing, so longer chains have to move between walls.
+
+### Effects
+
+The camera widens with speed. Every move has a sound slot, empty until a sound is added. Roblox's default character sounds are turned off. Footsteps are custom: they keep time with the walk and run animations, and sound like whatever the floor is made of.
 
 ### Server checks
 
 The client decides what to do and the server verifies it:
 
 - Every movement intent is rate limited, type checked and validated against a transition table.
-- Wall, ground and vault checks are repeated on the server from its own positions.
+- Wall, ground and ledge checks are repeated on the server from its own positions, with slack for the server's slightly old view.
 - Speed is sampled on an interval against what the recorded states allow. Sustained excess is rubber banded back to the last good position.
-- Vaults only work on parts tagged `Vaultable`, and walls only count when anchored.
+- Mantles only work on parts tagged `Mantleable`, and walls only count when anchored.
 
 ## Roadmap
 
