@@ -13,7 +13,22 @@ local function remote(name: string): RemoteEvent
 	return script:WaitForChild(name) :: RemoteEvent
 end
 
+-- for effects only, a dropped one loses a spark and never state
+local function unreliable(name: string): UnreliableRemoteEvent
+	if RunService:IsServer() then
+		local event = Instance.new("UnreliableRemoteEvent")
+		event.Name = name
+		event.Parent = script
+		return event
+	end
+	return script:WaitForChild(name) :: UnreliableRemoteEvent
+end
+
 return table.freeze({
 	Move = remote("Move"),
 	MoveDeny = remote("MoveDeny"),
+	Combat = remote("Combat"),
+	CombatDeny = remote("CombatDeny"),
+	Knockback = remote("Knockback"),
+	CombatFx = unreliable("CombatFx"),
 })
