@@ -113,7 +113,7 @@ return table.freeze({
 	-- upward speed held through DASH_AIR_HOLD instead of zero, so the air dash rises a little
 	AIR_DASH_LIFT = 30,
 	-- the iframes, from the start of any dash
-	DODGE_TIME = 0.15,
+	DODGE_TIME = 0.25,
 	DASH_COOLDOWN = 1.2,
 
 	LEAN_WALK = 9,
