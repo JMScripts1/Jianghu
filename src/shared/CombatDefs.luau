@@ -1,6 +1,7 @@
 --!strict
 -- Jianghu by Ruha.luau (github.com/JMScripts1)
 -- MIT licensed, see LICENSE. Feel free to remove this header.
+local AttackDefs = require(script.Parent.AttackDefs)
 local Config = require(script.Parent.Config)
 local MoveDefs = require(script.Parent.MoveDefs)
 local Types = require(script.Parent.Types)
@@ -52,7 +53,7 @@ local GROUND: { Target } = { "Idle", "Walk", "Run" }
 local AIR: { Target } = { "Jump", "DoubleJump", "SlideJump", "LedgeLeap", "Fall" }
 
 -- the move states each action can start in. nothing starts crouched, sliding, on a wall, mantling or dashing.
--- a light in the air is the air attack and one out of Run is the running attack, see CombatService
+-- a light in the air is the air attack and one out of Run is the running attack, see pick
 local FROM: { [Types.CombatAction]: { { Target } } } = {
 	Light = { GROUND, AIR },
 	Heavy = { GROUND },
@@ -114,6 +115,11 @@ for _, action: Types.CombatAction in ACTIONS do
 	from[action] = expand(FROM[action], action)
 end
 
+-- a heavy, running or air attack with no animation yet doesn't exist, so a weapon gets each one as its moveset does
+local function has(id: Types.AttackId): boolean
+	return AttackDefs[id].anim ~= ""
+end
+
 -- which attack an action is, the same rules on both sides so the client's prediction and the server never drift:
 -- the heavy, the air attack in the air, the running attack out of Run, otherwise the next hit of the string.
 -- nil when it can't happen. it changes nothing, the caller applies the result
@@ -128,10 +134,12 @@ local function pick(
 ): Types.Pick?
 	local def = WeaponDefs[weapon]
 	if action == "Heavy" then
-		return if isReady(HEAVY) then { id = def.heavy, kind = "Heavy", combo = 0, cooldown = HEAVY } else nil
+		return if isReady(HEAVY) and has(def.heavy)
+			then { id = def.heavy, kind = "Heavy", combo = 0, cooldown = HEAVY }
+			else nil
 	elseif MoveDefs[move].group == "Airborne" then
-		return if hasAirAttacked then nil else { id = def.air, kind = "Air", combo = 0 }
-	elseif move == "Run" and isReady(RUN) then
+		return if hasAirAttacked or not has(def.air) then nil else { id = def.air, kind = "Air", combo = 0 }
+	elseif move == "Run" and isReady(RUN) and has(def.run) then
 		return { id = def.run, kind = "Run", combo = 0, cooldown = RUN }
 	end
 
