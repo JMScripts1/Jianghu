@@ -24,6 +24,8 @@ export type Swing = {
 	endsAt: number?,
 	-- damage multiplier, above 1 for a running attack
 	power: number,
+	-- studs a second pushed forward at the hit, set with the hit time
+	lunge: number,
 	hit: { [Model]: true },
 }
 

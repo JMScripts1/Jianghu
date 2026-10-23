@@ -79,7 +79,10 @@ export type CombatState = "Idle" | "Attacking" | "Parrying" | "Blocking" | "Stun
 
 -- what a character plays from its own weapon: a loop while it's in a combat state, or a one shot when a hit it took
 -- part in resolves, see CombatDefs.reaction
-export type Reaction = CombatState | "Parry" | "Deflected" | "BlockHit" | "Knockback"
+export type Reaction = CombatState | "Parry" | "Deflected" | "BlockHit" | "Hurt" | "Knockback"
+
+-- one animation, or several that take turns
+export type ReactionAnims = string | { string }
 
 export type CombatAction = "Light" | "Heavy" | "Release" | "Block" | "Unblock"
 
@@ -93,7 +96,8 @@ export type MovesetId = "fist"
 -- made by WeaponDefs from the weapon and the slot, like fist_light_3, so none is ever typed by hand
 export type AttackId = string
 
-export type HitResult = "Dodged" | "Parried" | "Blocked" | "Broken" | "Hit"
+-- Knocked is a hit that knocked its target back
+export type HitResult = "Dodged" | "Parried" | "Blocked" | "Broken" | "Hit" | "Knocked"
 
 -- which slot of the weapon an attack came from
 export type AttackKind = "Light" | "Heavy" | "Run" | "Air"
@@ -160,7 +164,7 @@ export type Moveset = {
 	run: AttackSpec,
 	air: AttackSpec,
 	-- this weapon type's own reactions, anything empty or left out plays the one in CombatAnims
-	reactions: { [Reaction]: string }?,
+	reactions: { [Reaction]: ReactionAnims }?,
 }
 
 -- damage multiplies every hit, speed runs the whole swing and its animation faster, reach makes the box longer.
@@ -174,7 +178,8 @@ export type WeaponDef = {
 	heavy: AttackId,
 	run: AttackId,
 	air: AttackId,
-	reactions: { [Reaction]: string },
+	-- every slot as a list, empty when it has no animation
+	reactions: { [Reaction]: { string } },
 }
 
 export type CombatDef = {

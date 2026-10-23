@@ -99,7 +99,7 @@ local function isFront(target: BasePart, attacker: BasePart): boolean
 end
 
 -- the server owns NPCs, so it pushes them itself. the mover only lives as long as the push
-local function push(root: BasePart, velocity: Vector3)
+local function push(root: BasePart, velocity: Vector3, duration: number)
 	local attach = Instance.new("Attachment")
 	attach.Parent = root
 
@@ -113,7 +113,7 @@ local function push(root: BasePart, velocity: Vector3)
 	mover.MaxForce = PUSH_FORCE
 	mover.Parent = attach
 
-	task.delay(Config.KNOCKBACK_TIME, function()
+	task.delay(duration, function()
 		attach:Destroy()
 	end)
 end
@@ -126,11 +126,25 @@ local function knockback(target: Model, root: BasePart, from: BasePart, speed: n
 	if plr then
 		StateService.exempt(target, KNOCKBACK_EXEMPT)
 		Remotes.Knockback:FireClient(plr, dir, speed)
+	elseif not root.Anchored then
+		push(root, dir * speed, Config.KNOCKBACK_TIME)
+	end
+end
+
+-- a hit that doesn't knock back still moves its target along the attacker's step, as far as the attacker came in, so
+-- a string doesn't walk the attacker into it
+local function shove(target: Model, root: BasePart, from: BasePart, speed: number)
+	if speed <= 0 then
 		return
 	end
-	NpcAnimator.react(target, "Knockback")
-	if not root.Anchored then
-		push(root, dir * speed)
+	local look = from.CFrame.LookVector
+	local dir = Vector3.new(look.X, 0, look.Z).Unit
+	StateService.raiseCap(target, speed)
+	local plr = Players:GetPlayerFromCharacter(target)
+	if plr then
+		Remotes.Shove:FireClient(plr, dir, speed)
+	elseif not root.Anchored then
+		push(root, dir * speed, Config.LUNGE_TIME)
 	end
 end
 
@@ -183,12 +197,14 @@ local function resolve(
 		local wait = if swing.isDelayed then Config.DELAY_EXHAUST else Config.POSTURE_REGEN_DELAY
 		if not def.isGuardBreak and changePosture(target, -cost, wait) > 0 then
 			damage(target, def.damage * def.chip * swing.power)
+			shove(target, root, from, swing.lunge)
 			return "Blocked"
 		end
 		combat.brokenUntil = now + Config.POSTURE_BREAK_TIME
 		stun(st, combat.brokenUntil)
 		changePosture(target, Config.POSTURE_MAX, Config.POSTURE_BREAK_TIME)
 		damage(target, def.damage * swing.power)
+		shove(target, root, from, swing.lunge)
 		return "Broken"
 	end
 
@@ -204,7 +220,9 @@ local function resolve(
 	-- a delayed light doesn't knock back, so a delayed finisher carries the string on
 	if def.knockback and not (swing.isDelayed and swing.kind == "Light") then
 		knockback(target, root, from, def.knockback)
+		return "Knocked"
 	end
+	shove(target, root, from, swing.lunge)
 	return "Hit"
 end
 
@@ -242,14 +260,26 @@ local function query(char: Model, st: CharState, swing: Swing, now: number)
 end
 
 -- once the hit time is known so is the rest of the swing. a lunge goes past what the move state allows, so the speed
--- check is told now, and a delayed one pushes harder the longer it was held
+-- check is told now
 local function setHit(char: Model, swing: Swing, def: Types.AttackDef, hitAt: number)
 	swing.hitAt = hitAt
 	swing.activeUntil = hitAt + def.active
 	swing.nextQueryAt = hitAt
 	swing.endsAt = hitAt + def.active + def.recovery
 	if def.lunge then
-		StateService.raiseCap(char, def.lunge + Config.DELAY_LUNGE * swing.held / Config.DELAY_MAX)
+		-- a delayed heavy lunges harder the longer it was held
+		local bonus = if swing.kind == "Heavy" then Config.DELAY_LUNGE * swing.held / Config.DELAY_MAX else 0
+		swing.lunge = def.lunge + bonus
+		StateService.raiseCap(char, swing.lunge)
+	end
+end
+
+-- a player's own client pushes its lunge, the server only moves NPCs
+local function lunge(char: Model, speed: number)
+	local root = StateService.liveRoot(char)
+	if root and not root.Anchored and not Players:GetPlayerFromCharacter(char) then
+		local look = root.CFrame.LookVector
+		push(root, Vector3.new(look.X, 0, look.Z).Unit * speed, Config.LUNGE_TIME)
 	end
 end
 
@@ -351,6 +381,7 @@ local function attack(
 		isDelayed = false,
 		held = 0,
 		power = power,
+		lunge = 0,
 		hit = {},
 	}
 	combat.swing = swing
@@ -428,6 +459,9 @@ local function step()
 		end
 		local queryAt = if swing then swing.nextQueryAt else nil
 		if swing and queryAt and now >= queryAt then
+			if queryAt == swing.hitAt and swing.lunge > 0 then
+				lunge(char, swing.lunge)
+			end
 			query(char, st, swing, now)
 			local nextAt = queryAt + Config.ACTIVE_STEP
 			swing.nextQueryAt = if swing.activeUntil and nextAt <= swing.activeUntil then nextAt else nil

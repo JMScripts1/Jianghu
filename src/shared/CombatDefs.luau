@@ -125,11 +125,13 @@ end
 
 type Sides = { attacker: Types.Reaction?, target: Types.Reaction? }
 
--- what each side of a hit plays, each from its own weapon. anything not listed plays nothing extra, a stun or a
--- posture break shows through its state's loop
+-- what each side of a hit plays, each from its own weapon. anything not listed plays nothing extra, a posture break
+-- shows through its state's loop
 local ON_HIT: { [Types.HitResult]: Sides } = {
 	Parried = { attacker = "Deflected", target = "Parry" },
 	Blocked = { target = "BlockHit" },
+	Hit = { target = "Hurt" },
+	Knocked = { target = "Knockback" },
 }
 
 local function reaction(result: Types.HitResult, isAttacker: boolean): Types.Reaction?

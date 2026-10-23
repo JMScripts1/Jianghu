@@ -19,6 +19,8 @@ local LIGHT: Types.AttackDef = {
 	chip = 0,
 	stun = 0.55,
 	box = Vector3.new(5, 6, 6),
+	-- a small step in with every swing
+	lunge = 30,
 	canParry = true,
 	canBlock = true,
 	canDodge = true,

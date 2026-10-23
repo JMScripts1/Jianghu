@@ -31,7 +31,7 @@ type Swing = {
 	isHolding: boolean,
 	-- studs a second pushed forward at the hit, 0 once it has gone
 	lunge: number,
-	isAir: boolean,
+	kind: Types.AttackKind,
 	track: AnimationTrack?,
 }
 
@@ -87,6 +87,8 @@ local isParryOutOfStun = false
 local push: Push? = nil
 -- from CombatFx, played on the next step
 local pending: Types.Reaction? = nil
+-- which of a reaction's animations played last
+local turns: { [Types.Reaction]: number } = {}
 
 local function animation(id: string): Animation
 	local made = animations[id]
@@ -194,7 +196,7 @@ local function attack(c: Ctx, action: Types.CombatAction, button: InputControlle
 		isHolding = false,
 		-- the run drops to a walk as the swing starts, so the lunge keeps the momentum it came in with
 		lunge = if picked.kind == "Run" then c.momentum * Config.RUN_ATTACK_LUNGE else def.lunge or 0,
-		isAir = picked.kind == "Air",
+		kind = picked.kind,
 		track = track,
 	}
 	Remotes.Combat:FireServer(action)
@@ -272,8 +274,8 @@ local function hold(now: number)
 		if current.track then
 			current.track:AdjustSpeed(def.speed)
 		end
-		-- a delayed lunge pushes harder the longer it was held
-		if def.lunge then
+		-- a delayed heavy lunges harder the longer it was held
+		if def.lunge and current.kind == "Heavy" then
 			current.lunge = def.lunge + Config.DELAY_LUNGE * held / Config.DELAY_MAX
 		end
 	end
@@ -286,7 +288,7 @@ local function move(c: Ctx, now: number)
 		push = { velocity = Context.look(c) * current.lunge, untilAt = now + Config.LUNGE_TIME }
 		current.lunge = 0
 	end
-	if current and current.isAir and now < current.hitAt then
+	if current and current.kind == "Air" and now < current.hitAt then
 		local v = c.root.AssemblyLinearVelocity
 		c.root.AssemblyLinearVelocity = Vector3.new(v.X, 0, v.Z)
 	end
@@ -304,7 +306,9 @@ local function move(c: Ctx, now: number)
 end
 
 local function react(c: Ctx)
-	local id = WeaponDefs[weaponOf(c)].reactions[state(c)]
+	-- Idle and Attacking have no slot at all
+	local ids = WeaponDefs[weaponOf(c)].reactions[state(c)]
+	local id = if ids then ids[1] else nil
 	local track = if id then tracks[id] else nil
 	if track == reacting then
 		return
@@ -318,7 +322,7 @@ local function react(c: Ctx)
 	end
 end
 
--- a one shot over the loop, from this character's own weapon
+-- a one shot over the loop, from this character's own weapon. a reaction with several animations takes turns
 local function respond(c: Ctx)
 	local name: Types.Reaction? = pending
 	pending = nil
@@ -326,7 +330,13 @@ local function respond(c: Ctx)
 		stopOneShot()
 		return
 	end
-	local id = if name then WeaponDefs[weaponOf(c)].reactions[name] else nil
+	local ids = if name then WeaponDefs[weaponOf(c)].reactions[name] else nil
+	local id: string? = nil
+	if name and ids and #ids > 0 then
+		local turn = (turns[name] or 0) % #ids + 1
+		turns[name] = turn
+		id = ids[turn]
+	end
 	local track = if id then tracks[id] else nil
 	if track then
 		stopOneShot()
@@ -373,8 +383,10 @@ function CombatController.load(c: Ctx)
 		loadTrack(def.anim)
 	end
 	for _, weapon in WeaponDefs do
-		for _, id in weapon.reactions do
-			loadTrack(id)
+		for _, ids in weapon.reactions do
+			for _, id in ids do
+				loadTrack(id)
+			end
 		end
 	end
 
@@ -444,7 +456,11 @@ end)
 -- the victim's own client moves its character, so the server asks it to fly
 Remotes.Knockback.OnClientEvent:Connect(function(dir: Vector3, speed: number)
 	push = { velocity = dir * speed, untilAt = os.clock() + Config.KNOCKBACK_TIME }
-	pending = "Knockback"
+end)
+
+-- a hit that doesn't knock back moves the victim along the attacker's step, see CombatService
+Remotes.Shove.OnClientEvent:Connect(function(dir: Vector3, speed: number)
+	push = { velocity = dir * speed, untilAt = os.clock() + Config.LUNGE_TIME }
 end)
 
 -- a good parry starts the cooldown over on the server, so it does here too. either side of a hit plays its reaction
@@ -454,7 +470,7 @@ Remotes.CombatFx.OnClientEvent:Connect(function(attacker: Model, target: Model, 
 		cooldownUntil[PARRY] = 0
 	end
 	if char and (attacker == char or target == char) then
-		-- a plain hit has no reaction of its own, so it never clears a knockback that came in the same step
+		-- a result with nothing to play never clears one still waiting for the step
 		pending = CombatDefs.reaction(result, attacker == char) or pending
 	end
 end)

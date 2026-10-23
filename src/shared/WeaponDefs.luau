@@ -20,6 +20,18 @@ local rows: { [Types.WeaponId]: Row } = {
 local WeaponDefs: { [Types.WeaponId]: Types.WeaponDef } = {}
 local used: { [Types.MovesetId]: true } = {}
 
+-- one id or several become a list, and an empty id is no animation
+local function ids(anims: Types.ReactionAnims): { string }
+	local given: { string } = if typeof(anims) == "string" then { anims } else anims
+	local list: { string } = {}
+	for _, id in given do
+		if id ~= "" then
+			table.insert(list, id)
+		end
+	end
+	return table.freeze(list)
+end
+
 -- the old solver doesn't check these strings against MovesetId, so a typo would just never swing.
 -- loop vars are annotated because it widens them to string
 for weapon: Types.WeaponId, row in rows do
@@ -34,13 +46,17 @@ for weapon: Types.WeaponId, row in rows do
 		table.insert(light, `{weapon}_light_{i}`)
 	end
 
-	-- a clone of a frozen table isn't frozen
-	local reactions: { [Types.Reaction]: string } = table.clone(CombatAnims)
+	-- the moveset's own reactions over CombatAnims, an empty one keeps the default
+	local reactions: { [Types.Reaction]: { string } } = {}
+	for name: Types.Reaction, anims in CombatAnims do
+		reactions[name] = ids(anims)
+	end
 	local own = moveset.reactions
 	if own then
-		for name: Types.Reaction, id in own do
-			if id ~= "" then
-				reactions[name] = id
+		for name: Types.Reaction, anims in own do
+			local list = ids(anims)
+			if #list > 0 then
+				reactions[name] = list
 			end
 		end
 	end

@@ -20,6 +20,8 @@ type Npc = {
 	swingSpeed: number,
 	looping: AnimationTrack?,
 	oneShot: AnimationTrack?,
+	-- which of a reaction's animations played last
+	turns: { [Types.Reaction]: number },
 	conn: RBXScriptConnection,
 }
 
@@ -51,7 +53,7 @@ local function track(npc: Npc, id: string): AnimationTrack?
 	return loaded
 end
 
-local function reactions(char: Model): { [Types.Reaction]: string }
+local function reactions(char: Model): { [Types.Reaction]: { string } }
 	local st = StateService.get(char)
 	return WeaponDefs[if st then st.combat.weapon else CombatDefs.defaultWeapon].reactions
 end
@@ -73,7 +75,9 @@ local function onState(char: Model)
 		npc.swinging = nil
 	end
 
-	local loop = track(npc, reactions(char)[state] or "")
+	-- Idle and Attacking have no slot at all
+	local ids = reactions(char)[state]
+	local loop = if ids then track(npc, ids[1] or "") else nil
 	if loop == npc.looping then
 		return
 	end
@@ -92,6 +96,7 @@ function NpcAnimator.add(char: Model, hum: Humanoid)
 		animator = animator,
 		tracks = {},
 		swingSpeed = 1,
+		turns = {},
 		conn = char:GetAttributeChangedSignal("CombatState"):Connect(function()
 			onState(char)
 		end),
@@ -133,11 +138,17 @@ function NpcAnimator.slow(char: Model, isSlowed: boolean)
 	end
 end
 
--- a one shot over the loop, from the NPC's own weapon
+-- a one shot over the loop, from the NPC's own weapon. a reaction with several animations takes turns
 function NpcAnimator.react(char: Model, name: Types.Reaction)
 	local npc = npcs[char]
-	local t = if npc then track(npc, reactions(char)[name] or "") else nil
-	if npc and t then
+	local ids = reactions(char)[name]
+	if not npc or not ids or #ids == 0 then
+		return
+	end
+	local turn = (npc.turns[name] or 0) % #ids + 1
+	npc.turns[name] = turn
+	local t = track(npc, ids[turn])
+	if t then
 		stop(npc.oneShot)
 		npc.oneShot = t
 		t:Play(Config.ANIM_FADE)
