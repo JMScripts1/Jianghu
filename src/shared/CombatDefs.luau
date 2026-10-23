@@ -115,6 +115,14 @@ for _, action: Types.CombatAction in ACTIONS do
 	from[action] = expand(FROM[action], action)
 end
 
+local guard = expand(GUARD, "guard")
+
+-- a fresh block press parries from Idle, or out of a stun that isn't a heavy stun, where a block works and off
+-- cooldown. both sides call it, so the client never predicts a parry the server refuses
+local function canParry(state: Types.CombatState, isLocked: boolean, move: Types.MoveState, isReady: boolean): boolean
+	return (state == "Idle" or (state == "Stunned" and not isLocked)) and guard[move] == true and isReady
+end
+
 -- a heavy, running or air attack with no animation yet doesn't exist, so a weapon gets each one as its moveset does
 local function has(id: Types.AttackId): boolean
 	return AttackDefs[id].anim ~= ""
@@ -150,8 +158,9 @@ end
 return table.freeze({
 	states = table.freeze(states),
 	from = table.freeze(from),
-	guard = expand(GUARD, "guard"),
+	guard = guard,
 	cooldowns = table.freeze(COOLDOWNS),
 	defaultWeapon = DEFAULT_WEAPON,
 	pick = pick,
+	canParry = canParry,
 })

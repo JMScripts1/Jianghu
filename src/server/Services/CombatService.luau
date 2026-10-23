@@ -197,6 +197,8 @@ local function resolve(
 	stun(st, now + def.stun)
 	if def.isHeavyStun then
 		combat.lockedUntil = math.max(combat.lockedUntil, now + def.stun)
+		-- the client predicts its own parries, so it has to know which stuns it can't parry out of
+		target:SetAttribute("LockedUntil", combat.lockedUntil)
 	end
 	damage(target, def.damage * swing.power)
 	if def.knockback then
@@ -311,14 +313,12 @@ local function attack(
 	return true
 end
 
--- a fresh press where a block works opens the parry window, so does one out of a stun that isn't locked.
--- anywhere else it's only held
+-- a press CombatDefs.canParry allows opens the parry window, anywhere else it's only held
 local function block(st: CharState, state: Types.CombatState, move: Types.MoveState, now: number)
 	local combat = st.combat
 	combat.isBlockHeld = true
 
-	local canParry = state == "Idle" or (state == "Stunned" and now >= combat.lockedUntil)
-	if canParry and CombatDefs.guard[move] and isReady(st, PARRY, now) then
+	if CombatDefs.canParry(state, now < combat.lockedUntil, move, isReady(st, PARRY, now)) then
 		combat.parryUntil = now + Config.PARRY_WINDOW
 		combat.cooldownUntil[PARRY] = now + CombatDefs.cooldowns[PARRY]
 	end
@@ -436,6 +436,7 @@ function CombatService.add(char: Model)
 	Hitbox.add(char)
 	char:SetAttribute("CombatState", "Idle")
 	char:SetAttribute("Posture", Config.POSTURE_MAX)
+	char:SetAttribute("LockedUntil", 0)
 	-- the client picks its predicted attacks from this, the server's own copy is combat.weapon
 	char:SetAttribute("Weapon", CombatDefs.defaultWeapon)
 end

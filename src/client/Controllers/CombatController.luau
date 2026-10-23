@@ -192,21 +192,22 @@ local function settle(c: Ctx, now: number)
 	end
 end
 
--- the same rule as CombatService: a fresh press where a block works parries, so does one out of a stun
+-- the same CombatDefs.canParry call CombatService makes, with the lock the server published
 local function block(c: Ctx, now: number)
 	local held = InputController.isDown("Block")
 	if held == isBlockHeld then
 		return
 	end
-	local before = state(c)
+	local before: Types.CombatState = state(c)
 	isBlockHeld = held
 	if not held then
 		Remotes.Combat:FireServer("Unblock")
 		return
 	end
 
-	local canParry = before == "Idle" or before == "Stunned"
-	if canParry and CombatDefs.guard[c.state] and now >= (cooldownUntil[PARRY] or 0) then
+	local lockedUntil = c.char:GetAttribute("LockedUntil")
+	local isLocked = typeof(lockedUntil) == "number" and workspace:GetServerTimeNow() < lockedUntil
+	if CombatDefs.canParry(before, isLocked, c.state, now >= (cooldownUntil[PARRY] or 0)) then
 		parryUntil = now + Config.PARRY_WINDOW
 		cooldownUntil[PARRY] = now + CombatDefs.cooldowns[PARRY]
 		isParryOutOfStun = before == "Stunned"
