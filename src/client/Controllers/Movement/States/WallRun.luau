@@ -7,49 +7,65 @@ local Config = require(ReplicatedStorage.Shared.Config)
 local Probes = require(ReplicatedStorage.Shared.Probes)
 local Types = require(ReplicatedStorage.Shared.Types)
 local Context = require(script.Parent.Parent.Context)
+local InputController = require(script.Parent.Parent.Parent.InputController)
 local Air = require(script.Parent.Air)
+
+type Ctx = Context.Ctx
+
+local FALL = Vector3.new(0, -Config.WALLRUN_FALL_SPEED, 0)
+-- staying on the wall only needs the wall, not the speed it took to start the run
+local ANY_SPEED = math.huge
 
 local WallRun = {}
 
-local wallDir = Vector3.zAxis
+function WallRun.enter(c: Ctx)
+	local wall = c.wall :: Types.WallHit
 
-function WallRun.enter(ctx: Context.Context)
-	local hit = ctx.wallHit :: Types.WallHit
-
-	if ctx.state == "WallRun" then
-		local look = ctx.root.CFrame.LookVector
-		local along = look - hit.normal * look:Dot(hit.normal)
-		wallDir = Vector3.new(along.X, 0, along.Z).Unit
-		ctx.lastWallPart = hit.part
-		Context.face(ctx, wallDir)
-	else
-		ctx.momentum += Context.gain(ctx, "WallLeap", Config.LEAP_GAIN)
-		local push = wallDir * ctx.momentum + hit.normal * Config.LEAP_OUT
-		ctx.root.AssemblyLinearVelocity = Vector3.new(push.X, Config.LEAP_UP, push.Z)
-		Context.setVelocity(ctx, push, false)
-		Context.face(ctx, push.Unit)
+	if c.state == "WallRun" then
+		local along = wall.normal:Cross(Vector3.yAxis)
+		local travel = Context.travel(c)
+		local ref = if travel == Vector3.zero then Context.look(c) else travel
+		c.heading = if along:Dot(ref) >= 0 then along else -along
+		Context.face(c, c.heading)
+		Context.drive(c, c.heading * c.momentum + FALL)
+		return
 	end
+
+	-- heading is still the run direction along the wall. the push isn't capped, only what's carried out of it
+	local out = c.heading * (c.momentum + Config.LEAP_GAIN) + wall.normal * Config.LEAP_OUT
+	Context.gain(c, "WallLeap", out.Magnitude)
+	c.heading = out.Unit
+	Context.glide(c, out)
+	Air.launch(c, Config.LEAP_UP)
 end
 
-function WallRun.update(ctx: Context.Context, dt: number): Types.MoveState?
-	local land: Types.MoveState? = Air.landing(ctx)
-	if land then
-		return land
-	elseif ctx.state == "WallLeap" then
+function WallRun.update(c: Ctx, dt: number): Types.MoveState?
+	local landed: Types.MoveState? = Air.land(c)
+	if landed then
+		return landed
+	end
+	local elapsed = os.clock() - c.since
+
+	if c.state == "WallRun" then
+		if InputController.take("Jump") then
+			return "WallLeap"
+		elseif elapsed >= Config.WALLRUN_MAX_TIME or not Probes.wall(c.root, ANY_SPEED) then
+			return "Fall"
+		end
+		c.momentum = math.max(0, c.momentum - Config.WALLRUN_DECAY * dt)
+		Context.drive(c, c.heading * c.momentum + FALL)
 		return nil
 	end
 
-	ctx.momentum -= Config.WALLRUN_DECAY * dt
-	local hit = Probes.wall(ctx.root, ctx.momentum)
-	if not hit or hit.kind ~= "Run" then
-		return "Fall"
+	if InputController.take("Jump") then
+		local wall: Types.MoveState? = Air.wall(c)
+		if wall then
+			return wall
+		end
 	end
-	Context.setVelocity(ctx, wallDir * ctx.momentum - Vector3.yAxis * Config.WALLRUN_FALL_SPEED, true)
-	return nil
+	return if elapsed >= Config.LEAP_TIME then "Fall" else nil
 end
 
-function WallRun.exit(ctx: Context.Context)
-	Context.release(ctx)
-end
+WallRun.exit = Context.release
 
 return WallRun

@@ -6,44 +6,99 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage.Shared.Config)
-local MovementController = require(script.Parent.MovementController)
+local Types = require(ReplicatedStorage.Shared.Types)
+
+export type Action = "Sprint" | "Crouch" | "Jump" | "Dash" | "Mantle"
+
+local SPRINT: Action = "Sprint"
+local CROUCH: Action = "Crouch"
+
+-- above the default controls and sunk, so Space never jumps the humanoid
+local PRIORITY = Enum.ContextActionPriority.High.Value
+
+local BINDS: { [Action]: Enum.KeyCode } = {
+	Crouch = Config.KEYS.CROUCH,
+	Jump = Config.KEYS.JUMP,
+	Dash = Config.KEYS.DASH,
+	Mantle = Config.KEYS.MANTLE,
+}
+
+-- first held key wins, so W and D together is a forward dash
+local DASH_KEYS: { { key: Enum.KeyCode, state: Types.MoveState } } = {
+	{ key = Enum.KeyCode.W, state = "DashF" },
+	{ key = Enum.KeyCode.A, state = "DashL" },
+	{ key = Enum.KeyCode.S, state = "DashB" },
+	{ key = Enum.KeyCode.D, state = "DashR" },
+}
 
 local InputController = {}
 
-local lastTap = -math.huge
+local held: { [Action]: boolean } = {}
+local pressed: { [Action]: boolean } = {}
+local lastTap = 0
 
--- above the default controls, so Space never reaches the built in jump
-local function bind(action: MovementController.Action, key: Enum.KeyCode)
-	ContextActionService:BindActionAtPriority(action, function(_, inputState: Enum.UserInputState)
-		if inputState == Enum.UserInputState.Begin then
-			MovementController.action(action, true)
-		elseif inputState == Enum.UserInputState.End then
-			MovementController.action(action, false)
-		end
-		return Enum.ContextActionResult.Sink
-	end, false, Enum.ContextActionPriority.High.Value, key)
+function InputController.isDown(action: Action): boolean
+	return held[action] == true
 end
 
-bind("Crouch", Config.KEYS.CROUCH)
-bind("Jump", Config.KEYS.JUMP)
-bind("Dash", Config.KEYS.DASH)
+function InputController.take(action: Action): boolean
+	local was = pressed[action] == true
+	pressed[action] = nil
+	return was
+end
 
--- W goes through UserInputService unsunk, so it still walks
-UserInputService.InputBegan:Connect(function(key, processed)
-	if processed or key.KeyCode ~= Config.KEYS.SPRINT then
+-- a press nothing took this step is dropped, not kept for later
+function InputController.flush()
+	table.clear(pressed)
+end
+
+function InputController.dash(): Types.MoveState
+	for _, bind in DASH_KEYS do
+		if UserInputService:IsKeyDown(bind.key) then
+			return bind.state
+		end
+	end
+	return "DashB"
+end
+
+-- crouch is a toggle, and standing up to jump or sprint turns it off
+for action: Action, key in BINDS do
+	ContextActionService:BindActionAtPriority(`Move{action}`, function(_, inputState: Enum.UserInputState)
+		if inputState == Enum.UserInputState.Begin then
+			held[action] = if action == CROUCH then not held[CROUCH] else true
+			pressed[action] = true
+			if action == "Jump" then
+				held[CROUCH] = nil
+			end
+		elseif action ~= CROUCH then
+			held[action] = nil
+		end
+		return Enum.ContextActionResult.Sink
+	end, false, PRIORITY, key)
+end
+
+-- the sprint key also walks, so it's watched without sinking it
+UserInputService.InputBegan:Connect(function(input: InputObject, isProcessed: boolean)
+	if isProcessed or input.KeyCode ~= Config.KEYS.SPRINT then
 		return
 	end
 	local now = os.clock()
 	if now - lastTap <= Config.DOUBLE_TAP then
-		MovementController.action("Sprint", true)
+		held[SPRINT] = true
+		held[CROUCH] = nil
 	end
 	lastTap = now
 end)
 
-UserInputService.InputEnded:Connect(function(key)
-	if key.KeyCode == Config.KEYS.SPRINT then
-		MovementController.action("Sprint", false)
+UserInputService.InputEnded:Connect(function(input: InputObject)
+	if input.KeyCode == Config.KEYS.SPRINT then
+		held[SPRINT] = nil
 	end
+end)
+
+-- a key let go while the window is unfocused never sends an End
+UserInputService.WindowFocusReleased:Connect(function()
+	table.clear(held)
 end)
 
 return InputController

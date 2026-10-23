@@ -7,49 +7,45 @@ local Config = require(ReplicatedStorage.Shared.Config)
 local Probes = require(ReplicatedStorage.Shared.Probes)
 local Types = require(ReplicatedStorage.Shared.Types)
 local Context = require(script.Parent.Parent.Context)
+local InputController = require(script.Parent.Parent.Parent.InputController)
+local Ground = require(script.Parent.Ground)
+
+type Ctx = Context.Ctx
+
+local TURN_RATE = math.rad(Config.SLIDE_TURN_RATE)
 
 local Slide = {}
 
-local slideDir = Vector3.zAxis
-
-function Slide.enter(ctx: Context.Context)
-	local v = ctx.root.AssemblyLinearVelocity
-	local flat = Vector3.new(v.X, 0, v.Z)
-	local look = ctx.root.CFrame.LookVector
-	slideDir = if flat.Magnitude > 1 then flat.Unit else Vector3.new(look.X, 0, look.Z).Unit
-
-	ctx.momentum += Context.gain(ctx, "Slide", ctx.momentum * (Config.SLIDE_BOOST - 1))
-	Context.face(ctx, slideDir)
+function Slide.enter(c: Ctx)
+	local travel = Context.travel(c)
+	c.heading = if travel == Vector3.zero then Context.look(c) else travel
+	Context.gain(c, "Slide", c.momentum * Config.SLIDE_BOOST)
+	Context.face(c, c.heading)
+	Context.glide(c, c.heading * c.momentum)
 end
 
-function Slide.update(ctx: Context.Context, dt: number): Types.MoveState?
-	local floor = Probes.ground(ctx.root)
-	if not floor then
+function Slide.update(c: Ctx, dt: number): Types.MoveState?
+	-- read before the jump so the slide jump knows if it left a ramp
+	c.slope = Probes.slope(c.root, c.heading)
+	if InputController.take("Jump") then
+		return "SlideJump"
+	elseif not Ground.isGrounded(c) then
 		return "Fall"
+	end
+
+	c.momentum = math.min(Config.MOMENTUM_MAX, c.momentum + (Config.SLOPE_GAIN * c.slope - Config.SLIDE_DECAY) * dt)
+	if c.momentum < Config.SLIDE_END_SPEED then
+		return Ground.pick(c)
 	end
 
 	-- the default camera stops short of straight down, so the flat look is never zero
 	local look = workspace.CurrentCamera.CFrame.LookVector
-	slideDir = Context.turn(slideDir, Vector3.new(look.X, 0, look.Z).Unit, math.rad(Config.SLIDE_TURN_RATE) * dt)
-
-	local n = floor.Normal
-	if n.Y < Config.SLOPE_MIN_Y then
-		-- the flat part of the normal points downhill, so this adds going down and drains going up
-		ctx.momentum += Config.SLOPE_GAIN * Vector3.new(n.X, 0, n.Z):Dot(slideDir) * dt
-	else
-		ctx.momentum -= Config.SLIDE_DECAY * dt
-	end
-
-	if ctx.momentum < Config.SLIDE_END_SPEED then
-		return if ctx.input.sprint then "Run" else "CrouchWalk"
-	end
-	Context.face(ctx, slideDir)
-	Context.setVelocity(ctx, slideDir * ctx.momentum, false)
+	c.heading = Context.turn(c.heading, Vector3.new(look.X, 0, look.Z).Unit, TURN_RATE * dt)
+	Context.face(c, c.heading)
+	Context.glide(c, c.heading * c.momentum)
 	return nil
 end
 
-function Slide.exit(ctx: Context.Context)
-	Context.release(ctx)
-end
+Slide.exit = Context.release
 
 return Slide

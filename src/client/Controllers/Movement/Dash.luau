@@ -7,69 +7,98 @@ local Config = require(ReplicatedStorage.Shared.Config)
 local MoveDefs = require(ReplicatedStorage.Shared.MoveDefs)
 local Types = require(ReplicatedStorage.Shared.Types)
 local Context = require(script.Parent.Context)
+local Ground = require(script.Parent.States.Ground)
+
+type Ctx = Context.Ctx
+
+local HOLD = Config.DASH_TIME * (1 - Config.DASH_TAIL)
 
 local Dash = {}
 
--- set while a back dash is waiting on its burst
-local back: Vector3? = nil
--- in the air the back dash holds its height
-local holdY = false
-
--- from the movement keys held, relative to the character, forward with none held
-function Dash.direction(ctx: Context.Context): Types.DashDir
-	local move = ctx.hum.MoveDirection
-	if move.Magnitude == 0 then
-		return "F"
+-- re-read every step, so turning mid dash bends the path
+local function direction(c: Ctx): Vector3
+	local look = Context.look(c)
+	if c.state == "DashF" then
+		return look
 	end
-
-	local cf = ctx.root.CFrame
-	local forward = move:Dot(cf.LookVector)
-	local right = move:Dot(cf.RightVector)
-	if math.abs(forward) >= math.abs(right) then
-		return if forward >= 0 then "F" else "B"
-	end
-	return if right > 0 then "R" else "L"
+	local right = look:Cross(Vector3.yAxis)
+	return if c.state == "DashR" then right else -right
 end
 
-function Dash.start(ctx: Context.Context, dir: Types.DashDir)
-	local cf = ctx.root.CFrame
-	local look = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z).Unit
-	local right = Vector3.new(cf.RightVector.X, 0, cf.RightVector.Z).Unit
-	local v = if dir == "F" then look elseif dir == "B" then -look elseif dir == "R" then right else -right
-
-	if dir == "B" then
-		back = v
-		holdY = MoveDefs[ctx.state].group == "Airborne"
-		Context.setVelocity(ctx, v * Config.BACK_DASH_SPEED * Config.BACK_DASH_DRIFT, holdY)
-		ctx.dashUntil = os.clock() + Config.BACK_DASH_TIME
-		return
-	end
-
-	Context.setVelocity(ctx, v * Config.DASH_SPEED, false)
-	ctx.dashUntil = os.clock() + Config.DASH_TIME
-end
-
--- the back dash's burst, fired by the Boost marker in its animation
-function Dash.boost(ctx: Context.Context)
-	local dir = back
-	if not dir then
-		return
-	end
-	back = nil
-	Context.setVelocity(ctx, dir * Config.BACK_DASH_SPEED * Config.BACK_DASH_BOOST, holdY)
-	ctx.dashUntil = os.clock() + Config.BACK_DASH_BOOST_TIME
-end
-
-function Dash.update(ctx: Context.Context)
-	if os.clock() >= ctx.dashUntil then
-		Dash.stop(ctx)
+-- fired by the Boost marker in the DashB animation, a backstep that already ran out gets nothing
+function Dash.boost(c: Ctx)
+	local run = c.dash
+	if run and run.back and not run.boostedAt then
+		run.boostedAt = os.clock()
 	end
 end
 
-function Dash.stop(ctx: Context.Context)
-	back = nil
-	ctx.dashUntil = 0
-	ctx.velocity.Enabled = false
+-- a slow backstep, then a burst at the marker. no height hold, through the windup it reads as a stall
+local function updateBack(c: Ctx, run: Context.DashRun, back: Vector3): boolean
+	local now = os.clock()
+	local boostedAt = run.boostedAt
+	local isOver = if boostedAt
+		then now - boostedAt >= Config.BACK_DASH_BOOST_TIME
+		else now - c.since >= Config.BACK_DASH_TIME
+	if isOver then
+		return true
+	end
+
+	local speed = Config.BACK_DASH_SPEED * (if boostedAt then Config.BACK_DASH_BOOST else Config.BACK_DASH_DRIFT)
+	Context.glide(c, back * speed)
+	return false
+end
+
+local function updateBurst(c: Ctx, run: Context.DashRun): boolean
+	local elapsed = os.clock() - c.since
+	if elapsed >= Config.DASH_TIME then
+		return true
+	end
+
+	-- the tail brakes back onto momentum. the air dash has none, it lets go at full speed and the air bleeds it off
+	local fade = if run.isAirDash then 0 else math.max(0, elapsed - HOLD) / (Config.DASH_TIME - HOLD)
+	local peak = math.max(if run.isAirDash then Config.AIR_DASH_SPEED else Config.DASH_SPEED, c.momentum)
+	local speed = peak + (c.momentum - peak) * fade
+	Context.glide(c, direction(c) * speed)
+
+	if run.isAir and elapsed < Config.DASH_AIR_HOLD then
+		local v = c.root.AssemblyLinearVelocity
+		c.root.AssemblyLinearVelocity = Vector3.new(v.X, if run.isAirDash then Config.AIR_DASH_LIFT else 0, v.Z)
+	end
+	return false
+end
+
+function Dash.enter(c: Ctx)
+	local isAir = MoveDefs[c.prev].group == "Airborne"
+	local isAirDash = isAir and c.state == "DashF"
+	if isAirDash then
+		Context.gain(c, "DashF", math.max(c.momentum + Config.AIR_DASH_GAIN, Config.AIR_DASH_EXIT))
+	end
+	c.dash = {
+		isAir = isAir,
+		isAirDash = isAirDash,
+		back = if c.state == "DashB" then -Context.look(c) else nil,
+	}
+end
+
+function Dash.update(c: Ctx): Types.MoveState?
+	local run = c.dash :: Context.DashRun
+	local back = run.back
+	local isOver = if back then updateBack(c, run, back) else updateBurst(c, run)
+	if not isOver then
+		return nil
+	end
+	return if Ground.isGrounded(c) then Ground.pick(c) else "Fall"
+end
+
+function Dash.exit(c: Ctx)
+	-- Air keeps whatever heading a dash leaves. the air dash leaves its own, side and back dashes in the air the old one
+	local run = c.dash :: Context.DashRun
+	if not run.isAir or run.isAirDash then
+		c.heading = Context.travel(c)
+	end
+	c.dash = nil
+	c.lv.Enabled = false
 end
 
 return Dash

@@ -7,61 +7,80 @@ local Config = require(ReplicatedStorage.Shared.Config)
 local Probes = require(ReplicatedStorage.Shared.Probes)
 local Types = require(ReplicatedStorage.Shared.Types)
 local Context = require(script.Parent.Parent.Context)
+local InputController = require(script.Parent.Parent.Parent.InputController)
+
+type Ctx = Context.Ctx
+
+local SPEEDS: { [Types.MoveState]: number } = {
+	Idle = Config.WALK_SPEED,
+	Walk = Config.WALK_SPEED,
+	CrouchIdle = Config.CROUCH_SPEED,
+	CrouchWalk = Config.CROUCH_SPEED,
+}
+
+local LOW: { [Types.MoveState]: true } = { Slide = true, CrouchIdle = true, CrouchWalk = true }
 
 local Ground = {}
 
-local leftGroundAt: number? = nil
-
-function Ground.enter(ctx: Context.Context)
-	ctx.hum.AutoRotate = true
-	leftGroundAt = nil
+-- either one seeing floor is enough, so a bump or a slope at speed doesn't drop into Fall for a frame
+function Ground.isGrounded(c: Ctx): boolean
+	return c.hum.FloorMaterial ~= Enum.Material.Air or Probes.ground(c.root) ~= nil
 end
 
-function Ground.update(ctx: Context.Context, dt: number): Types.MoveState?
-	local now = os.clock()
-	if Probes.ground(ctx.root) then
-		leftGroundAt = nil
-	else
-		local left = leftGroundAt or now
-		leftGroundAt = left
-		if now - left >= Config.COYOTE then
-			return "Fall"
-		end
-	end
+function Ground.canSlide(c: Ctx): boolean
+	return c.momentum >= Config.SLIDE_MIN_SPEED and Context.isReady(c, "Slide")
+end
 
-	local state = ctx.state
-	local crouched = state == "CrouchIdle" or state == "CrouchWalk"
-	local move = ctx.hum.MoveDirection
-	local moving = move.Magnitude > 0
+function Ground.pick(c: Ctx): Types.MoveState
+	local isMoving = c.hum.MoveDirection.Magnitude > 0
+	local isStuck = LOW[c.state] and Probes.ceiling(c.root) ~= nil
+	if InputController.isDown("Crouch") or isStuck then
+		return if isMoving then "CrouchWalk" else "CrouchIdle"
+	elseif isMoving and InputController.isDown("Sprint") then
+		return "Run"
+	end
+	return if isMoving then "Walk" else "Idle"
+end
+
+function Ground.update(c: Ctx, dt: number): Types.MoveState?
+	local state: Types.MoveState = c.state
+	local hum = c.hum
 
 	if state == "Run" then
-		ctx.momentum = math.max(ctx.momentum, Config.RUN_SPEED)
-		local look = ctx.root.CFrame.LookVector
-		if move:Dot(Vector3.new(look.X, 0, look.Z).Unit) >= Config.RUN_STRAIGHT then
-			ctx.momentum += Config.RUN_BUILD * dt
+		-- only parkour builds momentum, a plain run lets it go once the hold is up
+		if os.clock() - c.since >= Config.RUN_HOLD then
+			c.momentum -= Config.RUN_DECAY * dt
 		end
-	elseif now - ctx.landedAt >= Config.LAND_GRACE then
-		local base = if crouched then Config.CROUCH_SPEED else Config.WALK_SPEED
-		ctx.momentum = math.max(base, ctx.momentum - Config.MOMENTUM_GROUND_DECAY * dt)
-	end
-	ctx.hum.WalkSpeed = ctx.momentum
-
-	if (state == "Walk" or state == "Run") and moving then
-		local hit = Probes.vaultLow(ctx.root)
-		if hit and -hit.normal:Dot(move) >= Config.VAULT_TOWARD then
-			ctx.vaultHit = hit
-			return "VaultLow"
+		c.momentum = math.max(c.momentum, Config.RUN_SPEED)
+	else
+		-- walking and crouching drop to their own speed at once, a landing holds on so it can still go into a run or slide
+		local target = SPEEDS[state]
+		if c.momentum < target or os.clock() - c.landedAt > Config.LAND_GRACE then
+			c.momentum = target
 		end
 	end
 
-	local want: Types.MoveState = if ctx.input.sprint and moving
-		then "Run"
-		elseif crouched then (if moving then "CrouchWalk" else "CrouchIdle")
-		elseif moving then "Walk"
-		else "Idle"
-	return if want ~= state then want else nil
+	local isHurt = hum.Health <= hum.MaxHealth * Config.HURT_THRESHOLD
+	hum.WalkSpeed = if state == "Run" and isHurt then c.momentum - Config.HURT_SPEED_PENALTY else c.momentum
+	-- the landing roll carries on forward with no keys held
+	if os.clock() < c.rollUntil then
+		hum:Move(Context.look(c))
+		hum.WalkSpeed = math.max(hum.WalkSpeed, Config.ROLL_SPEED)
+	end
+
+	local isCrouched = state == "CrouchIdle" or state == "CrouchWalk"
+	if not Ground.isGrounded(c) then
+		return "Fall"
+	elseif InputController.take("Jump") and not isCrouched then
+		-- from a crouch the press only stands up, it already turned crouch off and the pick below does the rest
+		return "Jump"
+	elseif state == "Run" and InputController.isDown("Crouch") then
+		-- Run can't go straight to CrouchWalk, so a slide on cooldown stands up for one step first
+		return if Ground.canSlide(c) then "Slide" else "Walk"
+	end
+
+	local nextState: Types.MoveState = Ground.pick(c)
+	return if nextState ~= state then nextState else nil
 end
-
-function Ground.exit(_: Context.Context) end
 
 return Ground

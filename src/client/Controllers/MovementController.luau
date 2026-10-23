@@ -7,249 +7,222 @@ local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage.Shared.Config)
 local MoveDefs = require(ReplicatedStorage.Shared.MoveDefs)
-local Probes = require(ReplicatedStorage.Shared.Probes)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local Types = require(ReplicatedStorage.Shared.Types)
 local AnimationController = require(script.Parent.AnimationController)
+local EffectController = require(script.Parent.EffectController)
+local InputController = require(script.Parent.InputController)
 local Context = require(script.Parent.Movement.Context)
 local Dash = require(script.Parent.Movement.Dash)
+local Lean = require(script.Parent.Movement.Lean)
 local Air = require(script.Parent.Movement.States.Air)
 local Ground = require(script.Parent.Movement.States.Ground)
+local Mantle = require(script.Parent.Movement.States.Mantle)
 local Slide = require(script.Parent.Movement.States.Slide)
-local Vault = require(script.Parent.Movement.States.Vault)
 local WallCling = require(script.Parent.Movement.States.WallCling)
 local WallRun = require(script.Parent.Movement.States.WallRun)
 
-export type Action = "Sprint" | "Crouch" | "Jump" | "Dash"
+type Ctx = Context.Ctx
 
-local MODULES: { [Types.MoveState]: Context.StateModule } = {
+type StateModule = {
+	enter: ((Ctx) -> ())?,
+	update: (Ctx, number) -> Types.MoveState?,
+	exit: ((Ctx) -> ())?,
+}
+
+local STATES: { [Types.MoveState]: StateModule } = {
 	Idle = Ground,
 	Walk = Ground,
 	Run = Ground,
 	CrouchIdle = Ground,
 	CrouchWalk = Ground,
 	Slide = Slide,
-	VaultLow = Vault,
+	Mantle = Mantle,
 	Jump = Air,
 	DoubleJump = Air,
 	SlideJump = Air,
+	LedgeLeap = Air,
 	Fall = Air,
 	WallRun = WallRun,
 	WallLeap = WallRun,
 	WallCling = WallCling,
 	WallBoost = WallCling,
-	VaultMid = Vault,
+	DashF = Dash,
+	DashB = Dash,
+	DashL = Dash,
+	DashR = Dash,
 }
+
+local player = Players.LocalPlayer
 
 local MovementController = {}
 
-local plr = Players.LocalPlayer
-local input: Context.Input = { sprint = false, crouch = false }
-local active: Context.Context? = nil
--- the server spawns everyone in Idle, which rides on Walk
-local lastSent: Types.MoveState = "Walk"
+local ctx: Ctx? = nil
+local lastSent: Types.MoveState? = nil
 
--- switches without checking the transition table, MoveDeny uses it to snap back
-local function switch(ctx: Context.Context, to: Types.MoveState)
-	local from: Types.MoveState = ctx.state
+local function blockRegrab(c: Ctx, untilTime: number)
+	for state: Types.MoveState, def in MoveDefs do
+		if def.isAttached then
+			c.cooldownUntil[state] = untilTime
+		end
+	end
+end
+
+local function send(to: Types.MoveState)
+	local wire: Types.MoveState = MoveDefs[to].wire
+	if wire ~= lastSent then
+		lastSent = wire
+		Remotes.Move:FireServer(wire)
+	end
+end
+
+-- same bookkeeping as the server's apply, so it rarely has a reason to deny
+local function switch(c: Ctx, to: Types.MoveState)
+	local from: Types.MoveState = c.state
 	local def = MoveDefs[to]
 	local now = os.clock()
 
-	MODULES[from].exit(ctx)
-	if ctx.dashUntil > 0 and not def.dash then
-		Dash.stop(ctx)
+	local exit = STATES[from].exit
+	if exit then
+		exit(c)
 	end
 
-	if from == "WallRun" or from == "WallCling" then
-		ctx.leftWallAt = now
+	if MoveDefs[from].isAttached then
+		blockRegrab(c, now + Config.WALL_REGRAB)
 	end
 	if def.group == "Grounded" and MoveDefs[from].group ~= "Grounded" then
-		ctx.airJumps = 0
-		ctx.lastWallPart = nil
-		ctx.landedAt = now
+		c.airJumps = 0
+		c.hasAirDashed = false
+		c.lastWallPart = nil
+		c.landedAt = now
+		if STATES[to] == Ground and c.takeoffY - c.root.Position.Y >= Config.ROLL_HEIGHT then
+			c.rollUntil = now + Config.ROLL_TIME
+			AnimationController.roll()
+		end
+	elseif MoveDefs[from].group == "Grounded" and def.group ~= "Grounded" then
+		c.takeoffY = c.root.Position.Y
 	elseif to == "DoubleJump" then
-		ctx.airJumps += 1
-	elseif to == "VaultMid" then
-		-- it ends standing on the ledge, so it counts as a landing
-		ctx.airJumps = 0
-		ctx.lastWallPart = nil
+		c.airJumps += 1
+	elseif def.isDash then
+		c.hasAirDashed = true
+	elseif def.isAttached then
+		local part = (c.wall :: Types.WallHit).part
+		if part ~= c.lastWallPart then
+			c.lastWallPart = part
+			table.clear(c.wallGrabs)
+		end
+		c.wallGrabs[to] = true
+		blockRegrab(c, now + (def.duration or 0) + Config.WALL_REGRAB)
 	end
-
-	ctx.prev = from
-	ctx.state = to
-	ctx.since = now
-	ctx.endsAt = if def.duration then now + def.duration else nil
-	ctx.cooldownUntil[to] = now + def.cooldown
-	MODULES[to].enter(ctx)
-	-- a leap only comes off a wall run and keeps its hit, so it leaps from the run's side
-	local sided = to == "WallRun" or to == "WallLeap"
-	AnimationController.state(to, if sided and ctx.wallHit then ctx.wallHit.side else nil)
+	if def.isDashReset then
+		c.hasAirDashed = false
+	end
+	-- the roll only carries on through the walk states
+	if STATES[to] ~= Ground then
+		c.rollUntil = 0
+	end
+	if def.cooldown > 0 then
+		c.cooldownUntil[to] = now + def.cooldown
+		if def.shares then
+			c.cooldownUntil[def.shares] = now + def.cooldown
+		end
+	end
 
 	if Config.DEBUG then
-		print("move", from, to)
+		print("state", from, "->", to)
 	end
-	if def.wire ~= lastSent then
-		lastSent = def.wire
-		Remotes.Move:FireServer(def.wire)
+
+	c.prev = from
+	c.state = to
+	c.since = now
+	local enter = STATES[to].enter
+	if enter then
+		enter(c)
 	end
+	c.animLength = AnimationController.play(c)
+	EffectController.play(c)
+	send(to)
 end
 
-local function request(ctx: Context.Context, to: Types.MoveState)
-	if MoveDefs[ctx.state].to[to] and Context.ready(ctx, to) then
-		switch(ctx, to)
+function MovementController.request(to: Types.MoveState): boolean
+	local c = ctx
+	if not c or not MoveDefs[c.state].to[to] or not Context.isReady(c, to) then
+		return false
 	end
+	switch(c, to)
+	return true
 end
 
-local function step(ctx: Context.Context, dt: number)
-	ctx.momentum = math.min(ctx.momentum, Config.MOMENTUM_MAX)
-
-	local nextState: Types.MoveState? = MODULES[ctx.state].update(ctx, dt)
-	if not nextState and ctx.endsAt and os.clock() >= ctx.endsAt then
-		nextState = MoveDefs[ctx.state].after
+local function step(c: Ctx, dt: number)
+	-- the split cooldowns let a side dash chain into a front one, but only on the ground. the air gets one dash
+	if InputController.take("Dash") and not c.hasAirDashed then
+		MovementController.request(InputController.dash())
 	end
+
+	local nextState: Types.MoveState? = STATES[c.state].update(c, dt)
 	if nextState then
-		request(ctx, nextState)
+		MovementController.request(nextState)
 	end
-
-	if ctx.dashUntil > 0 then
-		Dash.update(ctx)
-	end
+	Lean.update(c, dt)
+	InputController.flush()
 end
 
-local function onJump(ctx: Context.Context)
-	local state: Types.MoveState = ctx.state
-	local group = MoveDefs[state].group
-
-	if group == "Grounded" then
-		request(ctx, if state == "Slide" then "SlideJump" else "Jump")
-	elseif state == "WallRun" then
-		request(ctx, "WallLeap")
-	elseif state == "WallCling" or state == "WallBoost" then
-		local hit = Probes.vaultMid(ctx.root)
-		if hit then
-			ctx.vaultHit = hit
-			request(ctx, "VaultMid")
-		elseif state == "WallCling" then
-			request(ctx, "WallBoost")
-		end
-	elseif group == "Airborne" or state == "WallLeap" then
-		-- a wall wins over the double jump
-		local hit = Probes.wall(ctx.root, ctx.momentum)
-		if hit and hit.part ~= ctx.lastWallPart and os.clock() - ctx.leftWallAt >= Config.WALL_REGRAB then
-			ctx.wallHit = hit
-			request(ctx, if hit.kind == "Run" then "WallRun" else "WallCling")
-		elseif ctx.airJumps < Config.MAX_AIR_JUMPS then
-			request(ctx, "DoubleJump")
-		end
-	end
-end
-
-local function onCrouch(ctx: Context.Context)
-	local state: Types.MoveState = ctx.state
-	local moving = ctx.hum.MoveDirection.Magnitude > 0
-
-	if state == "Run" then
-		if ctx.momentum >= Config.SLIDE_MIN_SPEED then
-			request(ctx, "Slide")
-		end
-	elseif state == "Slide" then
-		request(ctx, if input.sprint then "Run" else "CrouchWalk")
-	elseif state == "Idle" or state == "Walk" then
-		request(ctx, if moving then "CrouchWalk" else "CrouchIdle")
-	elseif state == "CrouchIdle" or state == "CrouchWalk" then
-		request(ctx, if moving then "Walk" else "Idle")
-	end
-end
-
-local function onDash(ctx: Context.Context)
-	local now = os.clock()
-	if not MoveDefs[ctx.state].dash or ctx.dashUntil > 0 or now < ctx.dashReadyAt then
-		return
-	end
-
-	local dir: Types.DashDir = Dash.direction(ctx)
-	Dash.start(ctx, dir)
-	AnimationController.dash(dir)
-	ctx.dashReadyAt = now + Config.DASH_COOLDOWN
-	Remotes.Dash:FireServer(dir)
-end
-
-function MovementController.action(action: Action, down: boolean)
-	if action == "Sprint" then
-		input.sprint = down
-		return
-	elseif action == "Crouch" then
-		input.crouch = down
-	end
-
-	local ctx = active
-	if not down or not ctx then
-		return
-	end
-
-	if action == "Crouch" then
-		onCrouch(ctx)
-	elseif action == "Jump" then
-		onJump(ctx)
-	else
-		onDash(ctx)
-	end
-end
-
-local function onCharacter(char: Model)
-	local ctx = Context.new(char, input)
-	active = ctx
-	lastSent = "Walk"
-	MODULES[ctx.state].enter(ctx)
-	AnimationController.load(ctx)
-	AnimationController.state(ctx.state)
-
-	ctx.trove:Connect(RunService.PreSimulation, function(dt: number)
-		step(ctx, dt)
-	end)
-	ctx.trove:Connect(ctx.hum.Died, function()
-		ctx.trove:Destroy()
-		if active == ctx then
-			active = nil
-		end
-	end)
-end
-
-Remotes.MoveDeny.OnClientEvent:Connect(function(denied: string)
-	local ctx = active
-	if not ctx then
-		return
-	end
+local function onDeny(state: string)
+	local c = ctx
 	if Config.DEBUG then
-		print("denied", denied)
+		print("denied", state)
 	end
-
-	if denied == "Dash" then
-		if ctx.dashUntil > 0 then
-			Dash.stop(ctx)
-		end
-		return
-	elseif MoveDefs[ctx.state].wire ~= denied then
+	-- a denial that lands after the client moved on is for an intent the newer one replaced, the server judges that one
+	if not c or MoveDefs[c.state].wire ~= state then
 		return
 	end
 
-	local moving = ctx.hum.MoveDirection.Magnitude > 0
-	local fallback: Types.MoveState = if not Probes.ground(ctx.root) then "Fall" elseif moving then "Walk" else "Idle"
-	if fallback ~= ctx.state then
-		switch(ctx, fallback)
+	-- snap to what the character is really doing, but never resend the state that was just refused
+	local back: Types.MoveState = if Ground.isGrounded(c) then Ground.pick(c) else "Fall"
+	local wire: Types.MoveState = MoveDefs[back].wire
+	lastSent = if wire == state then wire else nil
+	if c.state == back then
+		send(back)
+	else
+		switch(c, back)
 	end
-end)
+end
 
-plr.CharacterAdded:Connect(onCharacter)
-plr.CharacterRemoving:Connect(function(char: Model)
-	local ctx = active
-	if ctx and ctx.char == char then
-		ctx.trove:Destroy()
-		active = nil
+local function stop(c: Ctx)
+	if ctx == c then
+		ctx = nil
+	end
+	c.trove:Clean()
+end
+
+local function onCharacterAdded(char: Model)
+	local c = Context.new(char)
+	AnimationController.load(c)
+	AnimationController.play(c)
+	EffectController.load(c)
+	ctx = c
+	-- the server starts every character in Walk
+	lastSent = "Walk"
+
+	c.trove:Connect(c.hum.Died, function()
+		stop(c)
+	end)
+	c.trove:Connect(RunService.PreSimulation, function(dt: number)
+		step(c, dt)
+	end)
+end
+
+Remotes.MoveDeny.OnClientEvent:Connect(onDeny)
+
+player.CharacterAdded:Connect(onCharacterAdded)
+player.CharacterRemoving:Connect(function(char: Model)
+	local c = ctx
+	if c and c.char == char then
+		stop(c)
 	end
 end)
-if plr.Character then
-	onCharacter(plr.Character)
+if player.Character then
+	task.spawn(onCharacterAdded, player.Character)
 end
 
 return MovementController

@@ -8,78 +8,153 @@ local MoveDefs = require(ReplicatedStorage.Shared.MoveDefs)
 local Probes = require(ReplicatedStorage.Shared.Probes)
 local Types = require(ReplicatedStorage.Shared.Types)
 local Context = require(script.Parent.Parent.Context)
+local InputController = require(script.Parent.Parent.Parent.InputController)
+local Ground = require(script.Parent.Ground)
+local Mantle = require(script.Parent.Mantle)
 
--- still going up faster than this means the ground under us is the one we just left. a humanoid at rest
--- never reads exactly 0, so stepping up onto a ledge without falling first would never land against 0
+type Ctx = Context.Ctx
+
+-- still going up faster than this means the ground under us is the one we just left
 local RISING = 1
+local TURN_RATE = math.rad(Config.AIR_TURN_RATE)
+
+local CLINGS: { [Types.MoveState]: true } = { WallCling = true, WallBoost = true }
+
+type Launch = { gain: number, power: number, lift: Vector3, time: number }
+
+-- launched along the heading at momentum times power, held against gravity for a moment before the air takes over
+local LAUNCHES: { [Types.MoveState]: Launch } = {
+	SlideJump = {
+		gain = Config.SLIDE_JUMP_GAIN,
+		power = Config.SLIDE_JUMP_LAUNCH,
+		lift = Vector3.new(0, Config.SLIDE_JUMP_LIFT, 0),
+		time = Config.SLIDE_JUMP_LAUNCH_TIME,
+	},
+	LedgeLeap = {
+		gain = Config.LEDGE_LEAP_GAIN,
+		power = Config.LEDGE_LEAP_LAUNCH,
+		lift = Vector3.new(0, Config.LEDGE_LEAP_LIFT, 0),
+		time = Config.LEDGE_LEAP_LAUNCH_TIME,
+	},
+}
 
 local Air = {}
 
--- the carried direction, steering turns it but never adds speed
-local airDir = Vector3.zero
+-- set directly, not left to the humanoid, so the next step can't read the takeoff as a landing
+function Air.launch(c: Ctx, power: number)
+	local v = c.root.AssemblyLinearVelocity
+	c.root.AssemblyLinearVelocity = Vector3.new(v.X, power, v.Z)
+end
 
--- whichever grounded state input and momentum call for, nil while still in the air
-function Air.landing(ctx: Context.Context): Types.MoveState?
-	if ctx.root.AssemblyLinearVelocity.Y > RISING or not Probes.ground(ctx.root) then
+function Air.land(c: Ctx): Types.MoveState?
+	if c.root.AssemblyLinearVelocity.Y > RISING or not Probes.ground(c.root) then
+		return nil
+	end
+	if InputController.isDown("Crouch") and Ground.canSlide(c) then
+		return "Slide"
+	end
+	return Ground.pick(c)
+end
+
+function Air.wall(c: Ctx): Types.MoveState?
+	local hit = Probes.wall(c.root, c.momentum)
+	if not hit then
 		return nil
 	end
 
-	local input = ctx.input
-	local moving = ctx.hum.MoveDirection.Magnitude > 0
-	if input.crouch and ctx.momentum >= Config.SLIDE_MIN_SPEED and Context.ready(ctx, "Slide") then
-		return "Slide"
-	elseif input.sprint and moving then
-		return "Run"
-	elseif input.crouch then
-		return if moving then "CrouchWalk" else "CrouchIdle"
+	local to: Types.MoveState = if hit.kind == "Run" then "WallRun" else "WallCling"
+	if (hit.part == c.lastWallPart and c.wallGrabs[to]) or not Context.isReady(c, to) then
+		return nil
 	end
-	return if moving then "Walk" else "Idle"
+	c.wall = hit
+	return to
 end
 
-function Air.enter(ctx: Context.Context)
-	local state = ctx.state
-	local root = ctx.root
-	ctx.hum.AutoRotate = true
-
-	if MoveDefs[ctx.prev].group ~= "Airborne" then
-		local v = root.AssemblyLinearVelocity
-		local flat = Vector3.new(v.X, 0, v.Z)
-		airDir = if flat.Magnitude > 1 then flat.Unit else Vector3.zero
+function Air.enter(c: Ctx)
+	local state: Types.MoveState = c.state
+	-- a dash picks the heading it leaves behind, see Dash.exit
+	if not MoveDefs[c.prev].isDash then
+		c.heading = Context.travel(c)
 	end
 
-	if state == "SlideJump" then
-		ctx.momentum += Context.gain(ctx, "SlideJump", Config.SLIDE_JUMP_GAIN)
+	local launch = LAUNCHES[state]
+	if launch then
+		Context.gain(c, state, c.momentum + launch.gain)
 	end
-
-	if state ~= "Fall" then
-		local power = if state == "DoubleJump" then Config.DOUBLE_JUMP_POWER else Config.JUMP_POWER
-		local v = root.AssemblyLinearVelocity
-		root.AssemblyLinearVelocity = Vector3.new(v.X, power, v.Z)
-		ctx.hum:ChangeState(Enum.HumanoidStateType.Freefall)
+	if state == "Jump" or state == "SlideJump" then
+		c.hum:ChangeState(Enum.HumanoidStateType.Jumping)
+		Air.launch(c, Config.JUMP_POWER)
+	elseif state == "DoubleJump" then
+		Air.launch(c, Config.DOUBLE_JUMP_POWER)
 	end
 end
 
-function Air.update(ctx: Context.Context, dt: number): Types.MoveState?
-	local land: Types.MoveState? = Air.landing(ctx)
-	if land then
-		return land
+function Air.update(c: Ctx, dt: number): Types.MoveState?
+	local landed: Types.MoveState? = Air.land(c)
+	if landed then
+		return landed
 	end
 
-	ctx.momentum = math.max(Config.WALK_SPEED, ctx.momentum - Config.MOMENTUM_AIR_DECAY * dt)
-
-	local wish = ctx.hum.MoveDirection
-	if wish.Magnitude > 0 then
-		airDir = if airDir == Vector3.zero
-			then wish
-			else Context.turn(airDir, wish, math.rad(Config.AIR_TURN_RATE) * dt)
+	local elapsed = os.clock() - c.since
+	-- a slide jump off a ramp or over a drop turns into a leap at once, so its own animation never shows
+	if c.state == "SlideJump" and elapsed < Config.LEDGE_LEAP_WINDOW then
+		local isRamp = c.slope >= Config.RAMP_SLOPE
+		local ahead = c.heading * c.momentum * Config.SLIDE_JUMP_LAUNCH * (Config.LEDGE_LEAP_WINDOW - elapsed)
+		if isRamp or Probes.isOverDrop(c.root, ahead) then
+			c.isRampLeap = isRamp
+			return "LedgeLeap"
+		end
+	end
+	-- the leap lasts as long as whichever animation it plays
+	local leapTime = if c.animLength > 0 then c.animLength else Config.LEDGE_LEAP_TIME
+	if c.state == "LedgeLeap" and elapsed >= leapTime then
+		return "Fall"
 	end
 
-	-- runs after the default controls each frame, so this is the direction physics uses
-	ctx.hum.WalkSpeed = ctx.momentum
-	ctx.hum:Move(airDir)
+	local launch = LAUNCHES[c.state]
+	if launch then
+		if elapsed < launch.time then
+			Context.drive(c, c.heading * c.momentum * launch.power + launch.lift)
+		else
+			c.lv.Enabled = false
+		end
+	end
+
+	-- a late press just after letting go of a cling or boost still catches the ledge
+	local isLetGo = c.state == "Fall" and CLINGS[c.prev] and elapsed < Config.LEDGE_GRACE
+	if isLetGo and InputController.take("Mantle") and Mantle.findLedge(c) then
+		return "Mantle"
+	end
+
+	-- a ledge in reach wins over a wall, and a wall over the air jump
+	if InputController.take("Jump") then
+		if Mantle.findLedge(c) then
+			return "Mantle"
+		end
+		local wall: Types.MoveState? = Air.wall(c)
+		if wall then
+			return wall
+		elseif c.airJumps < Config.MAX_AIR_JUMPS then
+			return "DoubleJump"
+		end
+	end
+
+	c.momentum = math.max(0, c.momentum - Config.MOMENTUM_AIR_DECAY * dt)
+
+	-- the control script sets MoveDirection every frame before this runs, so this read is the raw input
+	local input = c.hum.MoveDirection
+	if input.Magnitude > 0 then
+		local want = input.Unit
+		c.heading = if c.heading == Vector3.zero then want else Context.turn(c.heading, want, TURN_RATE * dt)
+	end
+	c.hum:Move(c.heading)
+	c.hum.WalkSpeed = math.max(c.momentum, Config.WALK_SPEED)
 	return nil
 end
 
-function Air.exit(_: Context.Context) end
+-- only the launches use the mover in the air, leaving cuts one short
+function Air.exit(c: Ctx)
+	c.lv.Enabled = false
+end
 
 return Air
