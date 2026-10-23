@@ -300,8 +300,10 @@ function CombatController.load(c: Ctx)
 	end)
 end
 
-function CombatController.step(c: Ctx)
+-- true when a swing started this step
+function CombatController.step(c: Ctx): boolean
 	local now = os.clock()
+	local was = swing
 	if FROM_SERVER[serverState(c)] and swing then
 		cancel()
 	end
@@ -334,6 +336,7 @@ function CombatController.step(c: Ctx)
 	block(c, now)
 	move(c, now)
 	react(c)
+	return swing ~= nil and swing ~= was
 end
 
 -- a denial for an action the client already replaced is for one the server judged on its own, so only the live

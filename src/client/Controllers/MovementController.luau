@@ -160,7 +160,9 @@ local function step(c: Ctx, dt: number)
 		MovementController.request(InputController.dash())
 	end
 
-	CombatController.step(c)
+	if CombatController.step(c) then
+		AnimationController.stopDash()
+	end
 	-- a swing, a block or a stun can rule out what the character is doing, so it drops to what it can do.
 	-- this is also how a stun cuts a dash short
 	if not CombatController.allows(c, c.state) then

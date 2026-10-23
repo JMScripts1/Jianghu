@@ -182,6 +182,14 @@ function AnimationController.play(c: Ctx): number
 	return if playing then playing.Length else 0
 end
 
+-- a dash animation plays out after its dash, so a swing that starts in its tail cuts it instead of blending in.
+-- the state track comes back from the Stopped handler in load
+function AnimationController.stopDash()
+	if dashing then
+		dashing:Stop(Config.ANIM_FADE)
+	end
+end
+
 function AnimationController.roll()
 	local track = tracks[ROLL]
 	rolling = track
