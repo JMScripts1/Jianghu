@@ -38,6 +38,8 @@ local ACTIONS: { [string]: Types.CombatAction } = {
 
 local CombatService = {}
 
+-- players and NPCs alike, everything regen looks after
+local characters: { [Model]: true } = {}
 -- characters with a live swing, a held block or an end time still ahead. the step only looks at these
 local active: { [Model]: true } = {}
 
@@ -412,11 +414,10 @@ end
 -- health only comes back once nobody has hit or been hit for COMBAT_TAG, and posture's attribute catches up with its regen
 local function regen(dt: number)
 	local now = workspace:GetServerTimeNow()
-	for _, plr in Players:GetPlayers() do
-		local char = plr.Character
-		local st = if char then StateService.get(char) else nil
-		local hum = if char then char:FindFirstChildOfClass("Humanoid") else nil
-		if not char or not st or not hum or hum.Health <= 0 then
+	for char in characters do
+		local st = StateService.get(char)
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if not st or not hum or hum.Health <= 0 then
 			continue
 		end
 
@@ -431,6 +432,7 @@ local function regen(dt: number)
 end
 
 function CombatService.add(char: Model)
+	characters[char] = true
 	Hitbox.add(char)
 	char:SetAttribute("CombatState", "Idle")
 	char:SetAttribute("Posture", Config.POSTURE_MAX)
@@ -439,6 +441,7 @@ function CombatService.add(char: Model)
 end
 
 function CombatService.remove(char: Model)
+	characters[char] = nil
 	Hitbox.remove(char)
 	active[char] = nil
 end
