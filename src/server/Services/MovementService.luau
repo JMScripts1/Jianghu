@@ -92,7 +92,7 @@ local function canEnter(
 
 	local cooldownUntil = move.cooldownUntil[to] or 0
 	if
-		not StateService.canMove(char)
+		not StateService.canMove(char, to)
 		or not MoveDefs[from].to[to]
 		or now + Config.COOLDOWN_TOLERANCE < cooldownUntil
 	then
