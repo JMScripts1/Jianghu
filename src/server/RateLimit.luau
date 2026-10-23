@@ -6,19 +6,18 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.Config)
 
-type Action = "Move" | "Dash"
+export type Action = "Move"
+
 type Bucket = { tokens: number, stamp: number }
 
 local LIMITS: { [Action]: { burst: number, refill: number } } = {
 	Move = { burst = Config.MOVE_BURST, refill = Config.MOVE_REFILL },
-	Dash = { burst = Config.DASH_BURST, refill = Config.DASH_REFILL },
 }
 
 local RateLimit = {}
 
 local buckets: { [Player]: { [Action]: Bucket } } = {}
 
--- a player with no entry has left, so a late remote from them is refused
 function RateLimit.check(plr: Player, action: Action): boolean
 	local mine = buckets[plr]
 	if not mine then
@@ -43,17 +42,17 @@ function RateLimit.check(plr: Player, action: Action): boolean
 	return true
 end
 
-local function onPlayer(plr: Player)
+-- created on join, not on first check, so a remote that lands after PlayerRemoving can't bring an entry back
+local function onPlayerAdded(plr: Player)
 	buckets[plr] = {}
 end
 
-Players.PlayerAdded:Connect(onPlayer)
-for _, plr in Players:GetPlayers() do
-	onPlayer(plr)
-end
-
+Players.PlayerAdded:Connect(onPlayerAdded)
 Players.PlayerRemoving:Connect(function(plr)
 	buckets[plr] = nil
 end)
+for _, plr in Players:GetPlayers() do
+	onPlayerAdded(plr)
+end
 
 return RateLimit
