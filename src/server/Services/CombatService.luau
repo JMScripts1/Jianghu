@@ -43,16 +43,6 @@ local characters: { [Model]: true } = {}
 -- characters with a live swing, a held block or an end time still ahead. the step only looks at these
 local active: { [Model]: true } = {}
 
--- the owner can delete parts of its own character, so nothing in it is assumed
-local function liveRoot(char: Model): BasePart?
-	local hum = char:FindFirstChildOfClass("Humanoid")
-	local root = char:FindFirstChild("HumanoidRootPart")
-	if hum and hum.Health > 0 and root and root:IsA("BasePart") then
-		return root
-	end
-	return nil
-end
-
 local function isReady(st: CharState, name: Types.CombatCooldown, now: number): boolean
 	return now + Config.COOLDOWN_TOLERANCE >= (st.combat.cooldownUntil[name] or 0)
 end
@@ -159,8 +149,8 @@ local function resolve(
 	now: number
 ): Types.HitResult?
 	local st = StateService.get(target)
-	local from = liveRoot(attacker)
-	local root = liveRoot(target)
+	local from = StateService.liveRoot(attacker)
+	local root = StateService.liveRoot(target)
 	if not st or not from or not root or st.combat.downed then
 		return nil
 	end
@@ -208,7 +198,7 @@ local function resolve(
 end
 
 local function query(char: Model, st: CharState, swing: Swing, now: number)
-	local root = liveRoot(char)
+	local root = StateService.liveRoot(char)
 	if not root then
 		return
 	end
@@ -327,7 +317,7 @@ end
 -- the one way in for players and NPCs. the remote handler does the rate limit and type checks before this
 function CombatService.act(char: Model, action: Types.CombatAction): boolean
 	local st = StateService.get(char)
-	if not st or not liveRoot(char) then
+	if not st or not StateService.liveRoot(char) then
 		return false
 	end
 
@@ -431,6 +421,7 @@ local function regen(dt: number)
 	end
 end
 
+-- players and NPCs alike, after StateService.add
 function CombatService.add(char: Model)
 	characters[char] = true
 	Hitbox.add(char)
@@ -447,29 +438,8 @@ function CombatService.remove(char: Model)
 	active[char] = nil
 end
 
-local function onPlayerAdded(plr: Player)
-	plr.CharacterAdded:Connect(CombatService.add)
-	plr.CharacterRemoving:Connect(CombatService.remove)
-
-	local char = plr.Character
-	if char then
-		CombatService.add(char)
-	end
-end
-
 Remotes.Combat.OnServerEvent:Connect(onCombat)
 RunService.Heartbeat:Connect(step)
-
-Players.PlayerAdded:Connect(onPlayerAdded)
-Players.PlayerRemoving:Connect(function(plr)
-	local char = plr.Character
-	if char then
-		CombatService.remove(char)
-	end
-end)
-for _, plr in Players:GetPlayers() do
-	onPlayerAdded(plr)
-end
 
 task.spawn(function()
 	while true do

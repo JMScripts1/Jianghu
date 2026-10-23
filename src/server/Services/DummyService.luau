@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local AttackDefs = require(ReplicatedStorage.Shared.AttackDefs)
 local Config = require(ReplicatedStorage.Shared.Config)
 local Hitbox = require(script.Parent.Parent.Hitbox)
+local CharacterService = require(script.Parent.CharacterService)
 local CombatService = require(script.Parent.CombatService)
 local StateService = require(script.Parent.StateService)
 
@@ -22,7 +23,6 @@ type Dummy = {
 }
 
 local TAG = "Dummy"
-local CHAR_GROUP = "Characters"
 local TICK = 1 / 20
 -- pressed this far ahead, the hit lands in the middle of the parry window
 local PARRY_LEAD = Config.PARRY_WINDOW / 2
@@ -52,16 +52,11 @@ local function checkMode(model: Model)
 	end
 end
 
-local function rootOf(char: Model): BasePart?
-	local root = char:FindFirstChild("HumanoidRootPart")
-	return if root and root:IsA("BasePart") then root else nil
-end
-
 local function nearestPlayer(root: BasePart): BasePart?
 	local best: BasePart? = nil
 	local bestDist = Config.DUMMY_RANGE
 	for _, plr in Players:GetPlayers() do
-		local other = if plr.Character then rootOf(plr.Character) else nil
+		local other = if plr.Character then StateService.liveRoot(plr.Character) else nil
 		local dist = if other then (other.Position - root.Position).Magnitude else math.huge
 		if other and dist < bestDist then
 			best = other
@@ -101,7 +96,7 @@ local function parry(model: Model, d: Dummy, st: StateService.CharState, now: nu
 
 	for _, char in attackers do
 		local attackerSt = StateService.get(char)
-		local root = rootOf(char)
+		local root = StateService.liveRoot(char)
 		local swing = if attackerSt then attackerSt.combat.swing else nil
 		local hitAt = if swing then swing.hitAt else nil
 		if not swing or not hitAt or not root or swing == d.parried then
@@ -165,24 +160,18 @@ local function add(inst: Instance)
 		return
 	end
 	local hum = inst:FindFirstChildOfClass("Humanoid")
-	local root = rootOf(inst)
+	local root = StateService.liveRoot(inst)
 	if not hum or not root then
-		warn("dummy needs a Humanoid and a HumanoidRootPart", inst:GetFullName())
+		warn("dummy needs a living Humanoid and a HumanoidRootPart", inst:GetFullName())
 		return
 	end
 
-	for _, part in inst:GetDescendants() do
-		if part:IsA("BasePart") then
-			part.CollisionGroup = CHAR_GROUP
-		end
-	end
 	-- owned by the server, or a player standing next to it could take it over and fling it
 	if root:CanSetNetworkOwnership() then
 		root:SetNetworkOwner(nil)
 	end
 
-	StateService.add(inst)
-	CombatService.add(inst)
+	CharacterService.add(inst)
 	checkMode(inst)
 	inst:GetAttributeChangedSignal("Mode"):Connect(function()
 		checkMode(inst)
@@ -199,8 +188,7 @@ end
 local function remove(inst: Instance)
 	if inst:IsA("Model") and dummies[inst] then
 		dummies[inst] = nil
-		CombatService.remove(inst)
-		StateService.remove(inst)
+		CharacterService.remove(inst)
 	end
 end
 

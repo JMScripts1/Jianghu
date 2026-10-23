@@ -45,16 +45,6 @@ local function setGroup(part: Instance)
 	end
 end
 
--- the owner can delete parts of its own character, so nothing in it is assumed
-local function liveRoot(char: Model): BasePart?
-	local hum = char:FindFirstChildOfClass("Humanoid")
-	local root = char:FindFirstChild("HumanoidRootPart")
-	if hum and hum.Health > 0 and root and root:IsA("BasePart") then
-		return root
-	end
-	return nil
-end
-
 local function onGround(root: BasePart): boolean
 	return Probes.ground(root, GROUND_REACH) ~= nil
 end
@@ -197,7 +187,7 @@ local function onMove(plr: Player, state: unknown)
 	local to: Types.MoveState? = WIRE[state]
 	local char = plr.Character
 	local st = if char then StateService.get(char) else nil
-	local root = if char then liveRoot(char) else nil
+	local root = if char then StateService.liveRoot(char) else nil
 	if not to or not char or not st or not root then
 		return
 	end
@@ -218,7 +208,7 @@ local function onMove(plr: Player, state: unknown)
 end
 
 local function sample(char: Model, st: CharState, now: number)
-	local root = liveRoot(char)
+	local root = StateService.liveRoot(char)
 	if not root then
 		return
 	end
@@ -258,8 +248,8 @@ local function sample(char: Model, st: CharState, now: number)
 	char:SetAttribute("MoveState", state)
 end
 
-local function onCharacterAdded(char: Model)
-	StateService.add(char)
+-- players and NPCs alike, after StateService.add. only players are speed checked, the server moves NPCs itself
+function MovementService.add(char: Model)
 	StateService.exempt(char, Config.SPAWN_EXEMPT)
 	char:SetAttribute("MoveState", StateService.current(char))
 
@@ -268,16 +258,6 @@ local function onCharacterAdded(char: Model)
 	end
 	-- accessories and tools arrive after spawn
 	char.DescendantAdded:Connect(setGroup)
-end
-
-local function onPlayerAdded(plr: Player)
-	plr.CharacterAdded:Connect(onCharacterAdded)
-	plr.CharacterRemoving:Connect(StateService.remove)
-
-	local char = plr.Character
-	if char then
-		onCharacterAdded(char)
-	end
 end
 
 -- the place file may already have them from the collision group editor
@@ -289,17 +269,6 @@ end
 PhysicsService:CollisionGroupSetCollidable(PROBE_GROUP, CHAR_GROUP, false)
 
 Remotes.Move.OnServerEvent:Connect(onMove)
-
-Players.PlayerAdded:Connect(onPlayerAdded)
-Players.PlayerRemoving:Connect(function(plr)
-	local char = plr.Character
-	if char then
-		StateService.remove(char)
-	end
-end)
-for _, plr in Players:GetPlayers() do
-	onPlayerAdded(plr)
-end
 
 task.spawn(function()
 	while true do

@@ -146,6 +146,16 @@ function StateService.get(char: Model): CharState?
 	return states[char]
 end
 
+-- the owner can delete parts of its own character, so nothing in it is assumed
+function StateService.liveRoot(char: Model): BasePart?
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	local root = char:FindFirstChild("HumanoidRootPart")
+	if hum and hum.Health > 0 and root and root:IsA("BasePart") then
+		return root
+	end
+	return nil
+end
+
 function StateService.land(char: Model, at: number)
 	local move = states[char].move
 	move.airJumps = 0
