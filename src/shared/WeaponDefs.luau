@@ -35,12 +35,12 @@ for weapon: Types.WeaponId, row in rows do
 	end
 
 	-- a clone of a frozen table isn't frozen
-	local reactions: { [Types.CombatState]: string } = table.clone(CombatAnims)
+	local reactions: { [Types.Reaction]: string } = table.clone(CombatAnims)
 	local own = moveset.reactions
 	if own then
-		for state: Types.CombatState, id in own do
+		for name: Types.Reaction, id in own do
 			if id ~= "" then
-				reactions[state] = id
+				reactions[name] = id
 			end
 		end
 	end

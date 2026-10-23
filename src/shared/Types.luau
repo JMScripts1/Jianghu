@@ -77,6 +77,10 @@ export type LedgeHit = {
 -- worked out from end times when read, never stored, see StateService.combatState
 export type CombatState = "Idle" | "Attacking" | "Parrying" | "Blocking" | "Stunned" | "PostureBroken" | "Downed"
 
+-- what a character plays from its own weapon: a loop while it's in a combat state, or a one shot when a hit it took
+-- part in resolves, see CombatDefs.reaction
+export type Reaction = CombatState | "Parry" | "Deflected" | "BlockHit" | "Knockback"
+
 export type CombatAction = "Light" | "Heavy" | "Release" | "Block" | "Unblock"
 
 export type CombatCooldown = "Parry" | "Heavy" | "Delay" | "Run"
@@ -156,7 +160,7 @@ export type Moveset = {
 	run: AttackSpec,
 	air: AttackSpec,
 	-- this weapon type's own reactions, anything empty or left out plays the one in CombatAnims
-	reactions: { [CombatState]: string }?,
+	reactions: { [Reaction]: string }?,
 }
 
 -- damage multiplies every hit, speed runs the whole swing and its animation faster, reach makes the box longer.
@@ -170,7 +174,7 @@ export type WeaponDef = {
 	heavy: AttackId,
 	run: AttackId,
 	air: AttackId,
-	reactions: { [CombatState]: string },
+	reactions: { [Reaction]: string },
 }
 
 export type CombatDef = {

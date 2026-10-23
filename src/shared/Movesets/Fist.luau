@@ -70,6 +70,9 @@ local Fist: Types.Moveset = {
 	reactions = {
 		Parrying = "",
 		Blocking = "",
+		Parry = "rbxassetid://87080884226868",
+		Deflected = "rbxassetid://129447946886861",
+		BlockHit = "rbxassetid://136221159215388",
 	},
 }
 

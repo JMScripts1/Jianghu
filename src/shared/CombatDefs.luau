@@ -123,6 +123,23 @@ local function canParry(state: Types.CombatState, isLocked: boolean, move: Types
 	return (state == "Idle" or (state == "Stunned" and not isLocked)) and guard[move] == true and isReady
 end
 
+type Sides = { attacker: Types.Reaction?, target: Types.Reaction? }
+
+-- what each side of a hit plays, each from its own weapon. anything not listed plays nothing extra, a stun or a
+-- posture break shows through its state's loop
+local ON_HIT: { [Types.HitResult]: Sides } = {
+	Parried = { attacker = "Deflected", target = "Parry" },
+	Blocked = { target = "BlockHit" },
+}
+
+local function reaction(result: Types.HitResult, isAttacker: boolean): Types.Reaction?
+	local sides = ON_HIT[result]
+	if not sides then
+		return nil
+	end
+	return if isAttacker then sides.attacker else sides.target
+end
+
 -- a heavy, running or air attack with no animation yet doesn't exist, so a weapon gets each one as its moveset does
 local function has(id: Types.AttackId): boolean
 	return AttackDefs[id].anim ~= ""
@@ -163,4 +180,5 @@ return table.freeze({
 	defaultWeapon = DEFAULT_WEAPON,
 	pick = pick,
 	canParry = canParry,
+	reaction = reaction,
 })

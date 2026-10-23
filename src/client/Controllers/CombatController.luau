@@ -64,6 +64,8 @@ local animations: { [string]: Animation } = {}
 -- by animation id, so every weapon on the same moveset shares one track
 local tracks: { [string]: AnimationTrack } = {}
 local reacting: AnimationTrack? = nil
+-- a one shot reaction, a swing or a dash cuts it
+local oneShot: AnimationTrack? = nil
 
 local swing: Swing? = nil
 local isQueued = false
@@ -76,6 +78,8 @@ local parryUntil = 0
 -- a parry pressed while stunned is still a stun to movement, see StateService.canMove
 local isParryOutOfStun = false
 local push: Push? = nil
+-- from CombatFx, played on the next step
+local pending: Types.Reaction? = nil
 
 local function animation(id: string): Animation
 	local made = animations[id]
@@ -112,6 +116,13 @@ end
 local function rowState(c: Ctx): Types.CombatState
 	local current: Types.CombatState = state(c)
 	return if current == "Parrying" and isParryOutOfStun then "Stunned" else current
+end
+
+local function stopOneShot()
+	if oneShot then
+		oneShot:Stop(Config.ANIM_FADE)
+		oneShot = nil
+	end
 end
 
 local function cancel()
@@ -159,6 +170,7 @@ local function attack(c: Ctx, action: Types.CombatAction, button: InputControlle
 
 	local def = AttackDefs[id]
 	local track = tracks[def.anim]
+	stopOneShot()
 	if track then
 		track:Play(Config.ANIM_FADE, 1, def.speed)
 	end
@@ -254,6 +266,23 @@ local function react(c: Ctx)
 	end
 end
 
+-- a one shot over the loop, from this character's own weapon
+local function respond(c: Ctx)
+	local name: Types.Reaction? = pending
+	pending = nil
+	if MoveDefs[c.state].isDash then
+		stopOneShot()
+		return
+	end
+	local id = if name then WeaponDefs[weaponOf(c)].reactions[name] else nil
+	local track = if id then tracks[id] else nil
+	if track then
+		stopOneShot()
+		oneShot = track
+		track:Play(Config.ANIM_FADE)
+	end
+end
+
 -- a landing is never refused, see StateService.canMove
 function CombatController.allows(c: Ctx, to: Types.MoveState): boolean
 	if MoveDefs[to].group == "Grounded" and MoveDefs[c.state].group ~= "Grounded" then
@@ -296,6 +325,8 @@ function CombatController.load(c: Ctx)
 	c.trove:Add(function()
 		table.clear(tracks)
 		reacting = nil
+		oneShot = nil
+		pending = nil
 		swing = nil
 		push = nil
 	end)
@@ -337,6 +368,7 @@ function CombatController.step(c: Ctx): boolean
 	block(c, now)
 	move(c, now)
 	react(c)
+	respond(c)
 	return swing ~= nil and swing ~= was
 end
 
@@ -355,12 +387,18 @@ end)
 -- the victim's own client moves its character, so the server asks it to fly
 Remotes.Knockback.OnClientEvent:Connect(function(dir: Vector3, speed: number)
 	push = { velocity = dir * speed, untilAt = os.clock() + Config.KNOCKBACK_TIME }
+	pending = "Knockback"
 end)
 
--- a good parry starts the cooldown over on the server, so it does here too
-Remotes.CombatFx.OnClientEvent:Connect(function(_attacker: Model, target: Model, _id: string, result: string)
-	if result == "Parried" and target == player.Character then
+-- a good parry starts the cooldown over on the server, so it does here too. either side of a hit plays its reaction
+Remotes.CombatFx.OnClientEvent:Connect(function(attacker: Model, target: Model, _id: string, result: Types.HitResult)
+	local char = player.Character
+	if result == "Parried" and target == char then
 		cooldownUntil[PARRY] = 0
+	end
+	if char and (attacker == char or target == char) then
+		-- a plain hit has no reaction of its own, so it never clears a knockback that came in the same step
+		pending = CombatDefs.reaction(result, attacker == char) or pending
 	end
 end)
 

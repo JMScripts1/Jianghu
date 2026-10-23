@@ -11,6 +11,7 @@ local Config = require(ReplicatedStorage.Shared.Config)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local Types = require(ReplicatedStorage.Shared.Types)
 local Hitbox = require(script.Parent.Parent.Hitbox)
+local NpcAnimator = require(script.Parent.Parent.NpcAnimator)
 local RateLimit = require(script.Parent.Parent.RateLimit)
 local StateService = require(script.Parent.StateService)
 
@@ -124,7 +125,10 @@ local function knockback(target: Model, root: BasePart, from: BasePart, speed: n
 	if plr then
 		StateService.exempt(target, KNOCKBACK_EXEMPT)
 		Remotes.Knockback:FireClient(plr, dir, speed)
-	elseif not root.Anchored then
+		return
+	end
+	NpcAnimator.react(target, "Knockback")
+	if not root.Anchored then
 		push(root, dir * speed)
 	end
 end
@@ -222,6 +226,7 @@ local function query(char: Model, st: CharState, swing: Swing, now: number)
 		publish(target)
 		if result then
 			fx(char, target, swing.id, result)
+			NpcAnimator.result(char, target, result)
 		end
 		if Config.DEBUG then
 			print(swing.id, target.Name, result)
@@ -300,6 +305,7 @@ local function attack(
 		power = power,
 		hit = {},
 	}
+	NpcAnimator.swing(char, id)
 	return true
 end
 

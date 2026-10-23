@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local AttackDefs = require(ReplicatedStorage.Shared.AttackDefs)
 local Config = require(ReplicatedStorage.Shared.Config)
 local Hitbox = require(script.Parent.Parent.Hitbox)
+local NpcAnimator = require(script.Parent.Parent.NpcAnimator)
 local CharacterService = require(script.Parent.CharacterService)
 local CombatService = require(script.Parent.CombatService)
 local StateService = require(script.Parent.StateService)
@@ -172,6 +173,7 @@ local function add(inst: Instance)
 	end
 
 	CharacterService.add(inst)
+	NpcAnimator.add(inst, hum)
 	checkMode(inst)
 	inst:GetAttributeChangedSignal("Mode"):Connect(function()
 		checkMode(inst)
@@ -188,6 +190,7 @@ end
 local function remove(inst: Instance)
 	if inst:IsA("Model") and dummies[inst] then
 		dummies[inst] = nil
+		NpcAnimator.remove(inst)
 		CharacterService.remove(inst)
 	end
 end
