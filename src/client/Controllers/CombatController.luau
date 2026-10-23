@@ -20,9 +20,15 @@ type Ctx = Context.Ctx
 type Swing = {
 	id: Types.AttackId,
 	button: InputController.Action,
+	startedAt: number,
+	-- these move later while a delay is held, see delay
 	hitAt: number,
 	endsAt: number,
 	isHeld: boolean,
+	-- when it reaches its delay point, nil once it's past it or for one that can't be delayed
+	delayAt: number?,
+	delayedAt: number?,
+	isHolding: boolean,
 	-- studs a second pushed forward at the hit, 0 once it has gone
 	lunge: number,
 	isAir: boolean,
@@ -31,8 +37,9 @@ type Swing = {
 
 type Push = { velocity: Vector3, untilAt: number }
 
--- typed so the old solver takes it as a key of cooldownUntil
+-- typed so the old solver takes them as keys of cooldownUntil
 local PARRY: Types.CombatCooldown = "Parry"
+local DELAY: Types.CombatCooldown = "Delay"
 
 -- being hit can't be predicted, these only ever come from the server
 local FROM_SERVER: { [Types.CombatState]: true } = { Stunned = true, PostureBroken = true, Downed = true }
@@ -179,9 +186,12 @@ local function attack(c: Ctx, action: Types.CombatAction, button: InputControlle
 	swing = {
 		id = id,
 		button = button,
+		startedAt = now,
 		hitAt = hitAt,
 		endsAt = hitAt + def.active + def.recovery,
 		isHeld = true,
+		delayAt = if def.delayAt then now + def.delayAt else nil,
+		isHolding = false,
 		-- the run drops to a walk as the swing starts, so the lunge keeps the momentum it came in with
 		lunge = if picked.kind == "Run" then c.momentum * Config.RUN_ATTACK_LUNGE else def.lunge or 0,
 		isAir = picked.kind == "Air",
@@ -225,6 +235,48 @@ local function block(c: Ctx, now: number)
 		isParryOutOfStun = before == "Stunned"
 	end
 	Remotes.Combat:FireServer("Block")
+end
+
+-- the same delay CombatService runs, on the client's own clock. held through the delay point with Delay ready, the
+-- windup and the animation run at DELAY_SPEED until the button comes up or DELAY_MAX, and the hit moves later
+local function hold(now: number)
+	local current = swing
+	if not current then
+		return
+	end
+	local def = AttackDefs[current.id]
+
+	local reachedAt = current.delayAt
+	if reachedAt and now >= reachedAt then
+		current.delayAt = nil
+		if current.isHeld and reachedAt >= (cooldownUntil[DELAY] or 0) then
+			current.delayedAt = reachedAt
+			current.isHolding = true
+			cooldownUntil[DELAY] = reachedAt + CombatDefs.cooldowns[DELAY]
+			if current.track then
+				current.track:AdjustSpeed(def.speed * Config.DELAY_SPEED)
+			end
+		end
+	end
+
+	local delayedAt = current.delayedAt
+	if not delayedAt or not current.isHolding then
+		return
+	end
+	local endsAt = delayedAt + Config.DELAY_MAX
+	local held = math.min(now, endsAt) - delayedAt
+	current.hitAt = current.startedAt + def.windup + held * (1 - Config.DELAY_SPEED)
+	current.endsAt = current.hitAt + def.active + def.recovery
+	if not current.isHeld or now >= endsAt then
+		current.isHolding = false
+		if current.track then
+			current.track:AdjustSpeed(def.speed)
+		end
+		-- a delayed lunge pushes harder the longer it was held
+		if def.lunge then
+			current.lunge = def.lunge + Config.DELAY_LUNGE * held / Config.DELAY_MAX
+		end
+	end
 end
 
 -- the lunge, the air attack's height hold and knockback all drive the root through the movement mover
@@ -292,6 +344,10 @@ function CombatController.allows(c: Ctx, to: Types.MoveState): boolean
 end
 
 function CombatController.speedCap(c: Ctx): number
+	local current = swing
+	if current and current.isHolding then
+		return Config.DELAY_WALK_SPEED
+	end
 	return SPEED_CAPS[rowState(c)] or math.huge
 end
 
@@ -364,6 +420,7 @@ function CombatController.step(c: Ctx): boolean
 		current.isHeld = false
 		Remotes.Combat:FireServer("Release")
 	end
+	hold(now)
 
 	block(c, now)
 	move(c, now)

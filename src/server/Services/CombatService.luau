@@ -18,8 +18,9 @@ local StateService = require(script.Parent.StateService)
 type CharState = StateService.CharState
 type Swing = StateService.Swing
 
--- typed so the old solver takes it as a key of cooldownUntil
+-- typed so the old solver takes them as keys of cooldownUntil
 local PARRY: Types.CombatCooldown = "Parry"
+local DELAY: Types.CombatCooldown = "Delay"
 
 local RUN_CAP = Config.MOMENTUM_MAX * Config.RUN_ATTACK_LUNGE
 local RUN_RANGE = Config.MOMENTUM_MAX - Config.RUN_SPEED
@@ -177,7 +178,10 @@ local function resolve(
 	end
 
 	if front and def.canBlock and StateService.isBlocking(target) then
-		if not def.isGuardBreak and changePosture(target, -def.posture, Config.POSTURE_REGEN_DELAY) > 0 then
+		-- a delayed hit takes more posture and holds its regen off longer
+		local cost = def.posture * (if swing.isDelayed then Config.DELAY_POSTURE else 1)
+		local wait = if swing.isDelayed then Config.DELAY_EXHAUST else Config.POSTURE_REGEN_DELAY
+		if not def.isGuardBreak and changePosture(target, -cost, wait) > 0 then
 			damage(target, def.damage * def.chip * swing.power)
 			return "Blocked"
 		end
@@ -188,14 +192,17 @@ local function resolve(
 		return "Broken"
 	end
 
-	stun(st, now + def.stun)
-	if def.isHeavyStun then
-		combat.lockedUntil = math.max(combat.lockedUntil, now + def.stun)
+	-- a delayed hit can't be parried out of, and stuns longer the longer it was held
+	local bonus = if swing.isDelayed then Config.DELAY_STUN * math.min(1, swing.held / Config.DELAY_FULL) else 0
+	stun(st, now + def.stun + bonus)
+	if def.isHeavyStun or swing.isDelayed then
+		combat.lockedUntil = math.max(combat.lockedUntil, now + def.stun + bonus)
 		-- the client predicts its own parries, so it has to know which stuns it can't parry out of
 		target:SetAttribute("LockedUntil", combat.lockedUntil)
 	end
 	damage(target, def.damage * swing.power)
-	if def.knockback then
+	-- a delayed light doesn't knock back, so a delayed finisher carries the string on
+	if def.knockback and not (swing.isDelayed and swing.kind == "Light") then
 		knockback(target, root, from, def.knockback)
 	end
 	return "Hit"
@@ -231,6 +238,54 @@ local function query(char: Model, st: CharState, swing: Swing, now: number)
 		if Config.DEBUG then
 			print(swing.id, target.Name, result)
 		end
+	end
+end
+
+-- once the hit time is known so is the rest of the swing. a lunge goes past what the move state allows, so the speed
+-- check is told now, and a delayed one pushes harder the longer it was held
+local function setHit(char: Model, swing: Swing, def: Types.AttackDef, hitAt: number)
+	swing.hitAt = hitAt
+	swing.activeUntil = hitAt + def.active
+	swing.nextQueryAt = hitAt
+	swing.endsAt = hitAt + def.active + def.recovery
+	if def.lunge then
+		StateService.raiseCap(char, def.lunge + Config.DELAY_LUNGE * swing.held / Config.DELAY_MAX)
+	end
+end
+
+-- a swing that can be delayed has no hit time until it reaches its delay point. held through it with Delay ready,
+-- the windup runs at DELAY_SPEED until Release or DELAY_MAX, and the hit lands that much later. both ends of the
+-- hold are arrivals here, so the attacker's ping mostly cancels out of how long it was
+local function advance(char: Model, st: CharState, swing: Swing, now: number)
+	local def = AttackDefs[swing.id]
+	local delayAt = def.delayAt
+	if swing.hitAt or not delayAt then
+		return
+	end
+
+	if not swing.delayedAt then
+		local reachedAt = swing.startedAt + delayAt
+		if now < reachedAt then
+			return
+		elseif not swing.isHeld or not isReady(st, DELAY, reachedAt) then
+			setHit(char, swing, def, swing.startedAt + def.windup)
+			return
+		end
+		swing.isDelayed = true
+		swing.delayedAt = reachedAt
+		st.combat.cooldownUntil[DELAY] = reachedAt + CombatDefs.cooldowns[DELAY]
+		NpcAnimator.slow(char, true)
+	end
+
+	local delayedAt = swing.delayedAt
+	if not delayedAt then
+		return
+	end
+	local endsAt = delayedAt + Config.DELAY_MAX
+	if not swing.isHeld or now >= endsAt then
+		swing.held = math.min(now, endsAt) - delayedAt
+		NpcAnimator.slow(char, false)
+		setHit(char, swing, def, swing.startedAt + def.windup + swing.held * (1 - Config.DELAY_SPEED))
 	end
 end
 
@@ -287,24 +342,22 @@ local function attack(
 		power += Config.RUN_ATTACK_BONUS * math.clamp((st.speed.measured - Config.RUN_SPEED) / RUN_RANGE, 0, 1)
 		StateService.raiseCap(char, RUN_CAP)
 	end
-	if def.lunge then
-		StateService.raiseCap(char, def.lunge)
-	end
 
-	local hitAt = start + def.windup
-	local activeUntil = hitAt + def.active
-	combat.swing = {
+	local swing: Swing = {
 		id = id,
+		kind = picked.kind,
 		startedAt = start,
 		isHeld = true,
 		isDelayed = false,
-		hitAt = hitAt,
-		activeUntil = activeUntil,
-		nextQueryAt = hitAt,
-		endsAt = activeUntil + def.recovery,
+		held = 0,
 		power = power,
 		hit = {},
 	}
+	combat.swing = swing
+	-- one that can be delayed gets its hit time at its delay point, see advance
+	if not def.delayAt then
+		setHit(char, swing, def, start + def.windup)
+	end
 	NpcAnimator.swing(char, id)
 	return true
 end
@@ -347,7 +400,10 @@ function CombatService.act(char: Model, action: Types.CombatAction): boolean
 	else
 		local swing = st.combat.swing
 		if swing then
+			-- a delay point the step hasn't reached yet this frame was passed still held, then the hold ends here
+			advance(char, st, swing, now)
 			swing.isHeld = false
+			advance(char, st, swing, now)
 		end
 	end
 
@@ -367,6 +423,9 @@ local function step()
 		end
 
 		local swing = st.combat.swing
+		if swing then
+			advance(char, st, swing, now)
+		end
 		local queryAt = if swing then swing.nextQueryAt else nil
 		if swing and queryAt and now >= queryAt then
 			query(char, st, swing, now)

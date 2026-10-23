@@ -16,6 +16,8 @@ type Npc = {
 	-- by animation id, loaded the first time each one plays
 	tracks: { [string]: AnimationTrack },
 	swinging: AnimationTrack?,
+	-- the rate the swing plays at, its weapon's speed
+	swingSpeed: number,
 	looping: AnimationTrack?,
 	oneShot: AnimationTrack?,
 	conn: RBXScriptConnection,
@@ -89,6 +91,7 @@ function NpcAnimator.add(char: Model, hum: Humanoid)
 	npcs[char] = {
 		animator = animator,
 		tracks = {},
+		swingSpeed = 1,
 		conn = char:GetAttributeChangedSignal("CombatState"):Connect(function()
 			onState(char)
 		end),
@@ -115,8 +118,18 @@ function NpcAnimator.swing(char: Model, id: Types.AttackId)
 	npc.oneShot = nil
 	local t = track(npc, def.anim)
 	npc.swinging = t
+	npc.swingSpeed = def.speed
 	if t then
 		t:Play(Config.ANIM_FADE, 1, def.speed)
+	end
+end
+
+-- a delayed windup runs at DELAY_SPEED, and the animation with it
+function NpcAnimator.slow(char: Model, isSlowed: boolean)
+	local npc = npcs[char]
+	local t = if npc then npc.swinging else nil
+	if npc and t then
+		t:AdjustSpeed(npc.swingSpeed * (if isSlowed then Config.DELAY_SPEED else 1))
 	end
 end
 

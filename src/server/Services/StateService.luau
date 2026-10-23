@@ -11,10 +11,13 @@ local Types = require(ReplicatedStorage.Shared.Types)
 -- hitAt is nil while a delay is being held, and the times after it wait on it
 export type Swing = {
 	id: Types.AttackId,
+	kind: Types.AttackKind,
 	startedAt: number,
 	isHeld: boolean,
 	isDelayed: boolean,
 	delayedAt: number?,
+	-- seconds the delay was held for, 0 until the hold ends
+	held: number,
 	hitAt: number?,
 	activeUntil: number?,
 	nextQueryAt: number?,

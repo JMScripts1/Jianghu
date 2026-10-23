@@ -13,7 +13,7 @@ local CharacterService = require(script.Parent.CharacterService)
 local CombatService = require(script.Parent.CombatService)
 local StateService = require(script.Parent.StateService)
 
-type Mode = "Idle" | "Block" | "Parry" | "Attack" | "Heavy"
+type Mode = "Idle" | "Block" | "Parry" | "Attack" | "Delay" | "Heavy"
 
 type Dummy = {
 	root: BasePart,
@@ -21,6 +21,9 @@ type Dummy = {
 	nextAttackAt: number,
 	-- one press per swing, so a parry dummy never presses twice for the same hit
 	parried: StateService.Swing?,
+	-- Delay mode holds every other swing and lets go here
+	releaseAt: number?,
+	isDelayNext: boolean,
 }
 
 local TAG = "Dummy"
@@ -33,6 +36,7 @@ local MODES: { [string]: Mode } = {
 	Block = "Block",
 	Parry = "Parry",
 	Attack = "Attack",
+	Delay = "Delay",
 	Heavy = "Heavy",
 }
 
@@ -99,7 +103,8 @@ local function parry(model: Model, d: Dummy, st: StateService.CharState, now: nu
 		local attackerSt = StateService.get(char)
 		local root = StateService.liveRoot(char)
 		local swing = if attackerSt then attackerSt.combat.swing else nil
-		local hitAt = if swing then swing.hitAt else nil
+		-- on rhythm, from when the hit would land undelayed, the way a player reads a windup, so a delay beats it
+		local hitAt = if swing then swing.startedAt + AttackDefs[swing.id].windup else nil
 		if not swing or not hitAt or not root or swing == d.parried then
 			continue
 		elseif (root.Position - d.root.Position).Magnitude > Config.DUMMY_RANGE then
@@ -134,6 +139,11 @@ local function step(model: Model, d: Dummy, now: number)
 	if m ~= "Block" and combat.isBlockHeld then
 		CombatService.act(model, "Unblock")
 	end
+	local releaseAt = d.releaseAt
+	if releaseAt and now >= releaseAt then
+		d.releaseAt = nil
+		CombatService.act(model, "Release")
+	end
 	if m == "Idle" then
 		return
 	end
@@ -151,8 +161,15 @@ local function step(model: Model, d: Dummy, now: number)
 		parry(model, d, st, now)
 	elseif target and now >= d.nextAttackAt then
 		d.nextAttackAt = now + Config.DUMMY_INTERVAL
-		CombatService.act(model, if m == "Heavy" then "Heavy" else "Light")
-		CombatService.act(model, "Release")
+		local isStarted = CombatService.act(model, if m == "Heavy" then "Heavy" else "Light")
+		local swing = combat.swing
+		-- every other swing in Delay mode holds through its delay point for a random time, the rest let go at once
+		if isStarted and swing and m == "Delay" and d.isDelayNext then
+			d.releaseAt = now + (AttackDefs[swing.id].delayAt or 0) + math.random() * Config.DELAY_MAX
+		else
+			CombatService.act(model, "Release")
+		end
+		d.isDelayNext = m == "Delay" and not d.isDelayNext
 	end
 end
 
@@ -184,6 +201,7 @@ local function add(inst: Instance)
 		hum = hum,
 		-- staggered, so a row of attack dummies doesn't swing in step
 		nextAttackAt = workspace:GetServerTimeNow() + math.random() * Config.DUMMY_INTERVAL,
+		isDelayNext = false,
 	}
 end
 
