@@ -225,6 +225,8 @@ local function resolve(
 		combat.cooldownUntil[PARRY] = 0
 		changePosture(target, Config.PARRY_POSTURE)
 		stun(attackerSt, now + Config.PARRIED_STUN)
+		-- the parrier faces the attacker, so its look sends the attacker back a step instead of on through its lunge
+		shove(attacker, from, root, Config.PARRY_RECOIL)
 		return "Parried"
 	end
 

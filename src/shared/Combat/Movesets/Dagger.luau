@@ -97,7 +97,8 @@ local Dagger: Types.Moveset = {
 		Blocking = "rbxassetid://120953089487237",
 
 		Parry = "rbxassetid://87080884226868",
-		Deflected = "rbxassetid://101552023527184",
+		-- the fist's, its own two put the left arm through the body out of the dagger stance
+		Deflected = "rbxassetid://129447946886861",
 		BlockHit = "rbxassetid://95408241331260",
 	},
 }
