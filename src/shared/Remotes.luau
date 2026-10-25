@@ -32,5 +32,6 @@ return table.freeze({
 	Knockback = remote("Knockback"),
 	Shove = remote("Shove"),
 	Equip = remote("Equip"),
+	Ping = remote("Ping"),
 	CombatFx = unreliable("CombatFx"),
 })

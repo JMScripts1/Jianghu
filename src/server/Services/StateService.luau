@@ -70,6 +70,9 @@ export type CharState = {
 		lockedUntil: number,
 		brokenUntil: number,
 		parryUntil: number,
+		-- where the parry window opened by the player's own screen, see Ping. parryUntil is the state, this is what a hit
+		-- is judged against
+		parryFrom: number,
 		cooldownUntil: { [Types.CombatCooldown]: number },
 		isBlockHeld: boolean,
 		hasAirAttacked: boolean,
@@ -133,6 +136,7 @@ function StateService.add(char: Model)
 			lockedUntil = 0,
 			brokenUntil = 0,
 			parryUntil = 0,
+			parryFrom = 0,
 			cooldownUntil = {},
 			isBlockHeld = false,
 			hasAirAttacked = false,

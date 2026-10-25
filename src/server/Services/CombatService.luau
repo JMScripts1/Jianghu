@@ -13,6 +13,7 @@ local Types = require(ReplicatedStorage.Shared.Types)
 local Grip = require(script.Parent.Parent.Combat.Grip)
 local Hitbox = require(script.Parent.Parent.Combat.Hitbox)
 local NpcAnimator = require(script.Parent.Parent.Combat.NpcAnimator)
+local Ping = require(script.Parent.Parent.Combat.Ping)
 local Ragdoll = require(script.Parent.Parent.Combat.Ragdoll)
 local WeaponModels = require(script.Parent.Parent.Combat.WeaponModels)
 local RateLimit = require(script.Parent.Parent.RateLimit)
@@ -48,6 +49,9 @@ local CombatService = {}
 local characters: { [Model]: true } = {}
 -- characters with a live swing, a held block or an end time still ahead. the step only looks at these
 local active: { [Model]: true } = {}
+-- hits on players wait out the target's rewind before they land, so a parry pressed in time on its screen can still
+-- arrive. oldest first
+local held: { { attacker: Model, target: Model, swing: Swing, hitAt: number, landsAt: number } } = {}
 
 local function isReady(st: CharState, name: Types.CombatCooldown, now: number): boolean
 	return now + Config.COOLDOWN_TOLERANCE >= (st.combat.cooldownUntil[name] or 0)
@@ -68,6 +72,7 @@ local function down(char: Model, st: CharState, now: number)
 	combat.swing = nil
 	combat.combo = 0
 	combat.parryUntil = 0
+	combat.parryFrom = 0
 	active[char] = true
 	Ragdoll.set(char, true)
 end
@@ -102,6 +107,12 @@ local function stun(st: CharState, untilTime: number)
 	combat.swing = nil
 	combat.combo = 0
 	combat.parryUntil = 0
+	combat.parryFrom = 0
+end
+
+-- judged against where the window opened on the player's own screen, see Ping
+local function isInParry(st: CharState, at: number): boolean
+	return at >= st.combat.parryFrom and at < st.combat.parryFrom + Config.PARRY_WINDOW
 end
 
 local function isFront(target: BasePart, attacker: BasePart): boolean
@@ -181,6 +192,7 @@ local function resolve(
 	target: Model,
 	def: Types.AttackDef,
 	swing: Swing,
+	hitAt: number,
 	now: number
 ): Types.HitResult?
 	local st = StateService.get(target)
@@ -191,7 +203,8 @@ local function resolve(
 	end
 	local combat = st.combat
 
-	if def.canDodge and now < st.dash.dodgeUntil then
+	-- judged at the hit, so a dash that started while the hit was held counts too
+	if def.canDodge and hitAt < st.dash.dodgeUntil then
 		return "Dodged"
 	end
 	-- a gripper can't guard, so a hit lets go first and lands on a body that's free to be pushed
@@ -201,7 +214,7 @@ local function resolve(
 	active[target] = true
 
 	local front = isFront(root, from)
-	if front and def.canParry and now < combat.parryUntil then
+	if front and def.canParry and isInParry(st, hitAt) then
 		-- a good parry is never locked out, the cooldown starts over
 		combat.cooldownUntil[PARRY] = 0
 		changePosture(target, Config.PARRY_POSTURE)
@@ -244,6 +257,23 @@ local function resolve(
 	return "Hit"
 end
 
+-- stuns and damage run from when it lands, so a held string keeps its rhythm. only the dodge and parry look back
+local function land(attacker: Model, target: Model, swing: Swing, hitAt: number, now: number)
+	local st = StateService.get(attacker)
+	if not st then
+		return
+	end
+	local result: Types.HitResult? = resolve(attacker, st, target, AttackDefs[swing.id], swing, hitAt, now)
+	StateService.publish(target)
+	if result then
+		fx(attacker, target, swing.id, result)
+		NpcAnimator.result(attacker, target, result)
+	end
+	if Config.DEBUG then
+		print(swing.id, target.Name, result, math.round((now - hitAt) * 1000), "ms held")
+	end
+end
+
 local function query(char: Model, st: CharState, swing: Swing, now: number)
 	local root = StateService.liveRoot(char)
 	if not root then
@@ -265,14 +295,14 @@ local function query(char: Model, st: CharState, swing: Swing, now: number)
 		swing.hit[target] = true
 		count += 1
 
-		local result: Types.HitResult? = resolve(char, st, target, def, swing, now)
-		StateService.publish(target)
-		if result then
-			fx(char, target, swing.id, result)
-			NpcAnimator.result(char, target, result)
-		end
-		if Config.DEBUG then
-			print(swing.id, target.Name, result)
+		-- one already inside the target's parry window has nothing left to wait for, so a clean parry lands at once
+		local rewind = Ping.rewind(target)
+		local targetSt = StateService.get(target)
+		local isParried = def.canParry and targetSt ~= nil and isInParry(targetSt, now)
+		if rewind > 0 and not isParried then
+			table.insert(held, { attacker = char, target = target, swing = swing, hitAt = now, landsAt = now + rewind })
+		else
+			land(char, target, swing, now, now)
 		end
 	end
 end
@@ -451,12 +481,14 @@ local function attack(
 end
 
 -- a press CombatDefs.canParry allows opens the parry window, anywhere else it's only held
-local function block(st: CharState, state: Types.CombatState, move: Types.MoveState, now: number)
+local function block(char: Model, st: CharState, state: Types.CombatState, move: Types.MoveState, now: number)
 	local combat = st.combat
 	combat.isBlockHeld = true
 
 	if CombatDefs.canParry(state, now < combat.lockedUntil, move, isReady(st, PARRY, now)) then
 		combat.parryUntil = now + Config.PARRY_WINDOW
+		-- the press arrived a rewind after it was made against what the player saw
+		combat.parryFrom = now - Ping.rewind(char)
 		combat.cooldownUntil[PARRY] = now + CombatDefs.cooldowns[PARRY]
 	end
 end
@@ -506,7 +538,7 @@ function CombatService.act(char: Model, action: Types.CombatAction): boolean
 			return false
 		end
 	elseif action == "Block" then
-		block(st, state, move, now)
+		block(char, st, state, move, now)
 	elseif action == "Unblock" then
 		-- a parry window already open runs out on its own, so a quick tap still parries
 		st.combat.isBlockHeld = false
@@ -527,6 +559,16 @@ end
 
 local function step()
 	local now = workspace:GetServerTimeNow()
+	local i = 1
+	while i <= #held do
+		local h = held[i]
+		if now >= h.landsAt then
+			table.remove(held, i)
+			land(h.attacker, h.target, h.swing, h.hitAt, now)
+		else
+			i += 1
+		end
+	end
 	-- resolving a hit brings the target in, so the set is walked from a copy
 	for char in table.clone(active) do
 		-- a body a grip finished is left lying, its downed timer never stands it back up

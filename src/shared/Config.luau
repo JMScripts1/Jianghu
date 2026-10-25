@@ -187,6 +187,11 @@ return table.freeze({
 	PARRY_COOLDOWN = 1.4,
 	PARRY_POSTURE = 20,
 	PARRIED_STUN = 0.4,
+	-- a parry and a hit on a player are judged as far back as its screen is behind: its round trip plus VIEW_DELAY,
+	-- the replication before a swing shows, never more than PARRY_REWIND. see Ping
+	PARRY_REWIND = 0.2,
+	VIEW_DELAY = 0.05,
+	PING_INTERVAL = 2,
 	-- the target's flat look dotted with the way to the attacker. under 0 because the server sees a turn late
 	GUARD_FACING = -0.15,
 

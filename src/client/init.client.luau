@@ -3,4 +3,5 @@
 -- MIT licensed, see LICENSE. Feel free to remove this header.
 require(script.Controllers.MovementController)
 require(script.Controllers.AdminController)
+require(script.Controllers.AnimCheck)
 require(script.UI.Watermark)

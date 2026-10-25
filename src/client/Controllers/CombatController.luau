@@ -532,6 +532,11 @@ Remotes.CombatDeny.OnClientEvent:Connect(function(action: string)
 	end
 end)
 
+-- the server times this round trip to judge parries and hits from this screen, so it goes straight back
+Remotes.Ping.OnClientEvent:Connect(function()
+	Remotes.Ping:FireServer()
+end)
+
 -- the victim's own client moves its character, so the server asks it to fly
 Remotes.Knockback.OnClientEvent:Connect(function(dir: Vector3, speed: number)
 	push = { velocity = dir * speed, untilAt = os.clock() + Config.KNOCKBACK_TIME }
