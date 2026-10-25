@@ -42,11 +42,15 @@ type Push = { velocity: Vector3, untilAt: number }
 -- typed so the old solver takes them as keys of cooldownUntil
 local PARRY: Types.CombatCooldown = "Parry"
 local DELAY: Types.CombatCooldown = "Delay"
+local LIGHT: Types.CombatCooldown = "Light"
 local GRIP: Types.CombatAction = "Grip"
 
 -- being hit can't be predicted, these only ever come from the server
 local FROM_SERVER: { [Types.CombatState]: true } =
-	{ Stunned = true, PostureBroken = true, Downed = true, Gripping = true, Gripped = true }
+	{ Stunned = true, PostureBroken = true, WallStunned = true, Downed = true, Gripping = true, Gripped = true }
+
+-- a pin holds its own pose, so it cuts a one shot still playing, like the knockback's, and none plays over it
+local HOLDS_POSE: { [Types.CombatState]: true } = { WallStunned = true }
 
 local SPEED_CAPS: { [Types.CombatState]: number } = {
 	Attacking = Config.ATTACK_WALK_SPEED,
@@ -54,6 +58,7 @@ local SPEED_CAPS: { [Types.CombatState]: number } = {
 	Blocking = Config.BLOCK_WALK_SPEED,
 	Stunned = Config.STUN_WALK_SPEED,
 	PostureBroken = 0,
+	WallStunned = 0,
 	Downed = 0,
 	Gripping = 0,
 	Gripped = 0,
@@ -93,9 +98,13 @@ local parryUntil = 0
 -- a parry pressed while stunned is still a stun to movement, see StateService.canMove
 local isParryOutOfStun = false
 local isRagdolled = false
--- held still through a grip, see body
+-- held still through a grip or a wall pin, see body
 local isAnchored = false
+-- a broken guard can't turn, see body
+local isRooted = false
 local push: Push? = nil
+-- where the server put this body against a wall, set on the next step
+local pinAt: CFrame? = nil
 -- from CombatFx, played on the next step
 local pending: Types.Reaction? = nil
 -- which of a reaction's animations played last
@@ -247,6 +256,9 @@ local function settle(c: Ctx, now: number)
 	end
 	swing = nil
 	comboAt = current.endsAt
+	if CombatDefs.isFinisher(weaponOf(c), current.id) then
+		cooldownUntil[LIGHT] = current.endsAt + CombatDefs.cooldowns[LIGHT]
+	end
 	if isQueued then
 		isQueued = false
 		attack(c, "Light", "Light", now)
@@ -321,6 +333,16 @@ end
 
 -- the lunge, the air attack's height hold and knockback all drive the root through the movement mover
 local function move(c: Ctx, now: number)
+	-- the knockback ends at the wall, and the body is set where the server says it hit
+	local pin = pinAt
+	if pin then
+		pinAt = nil
+		push = nil
+		c.lv.Enabled = false
+		c.root.AssemblyLinearVelocity = Vector3.zero
+		c.root.CFrame = pin
+	end
+
 	local current = swing
 	if current and current.lunge > 0 and now >= current.hitAt then
 		push = { velocity = Context.look(c) * current.lunge, untilAt = now + Config.LUNGE_TIME }
@@ -344,8 +366,9 @@ local function move(c: Ctx, now: number)
 end
 
 local function react(c: Ctx)
+	local current: Types.CombatState = state(c)
 	-- Idle and Attacking have no slot at all
-	local ids = WeaponDefs[weaponOf(c)].reactions[state(c)]
+	local ids = WeaponDefs[weaponOf(c)].reactions[current]
 	local id = if ids then ids[1] else nil
 	local track = if id then tracks[id] else nil
 	if track == reacting then
@@ -355,6 +378,9 @@ local function react(c: Ctx)
 		reacting:Stop(Config.COMBAT_FADE)
 	end
 	reacting = track
+	if track and HOLDS_POSE[current] then
+		stopOneShot()
+	end
 	if track then
 		track:Play(Config.COMBAT_FADE)
 	end
@@ -364,7 +390,7 @@ end
 local function respond(c: Ctx)
 	local name: Types.Reaction? = pending
 	pending = nil
-	if MoveDefs[c.state].isDash then
+	if MoveDefs[c.state].isDash or HOLDS_POSE[state(c)] then
 		stopOneShot()
 		return
 	end
@@ -385,17 +411,19 @@ end
 
 -- downed is a ragdoll, and a grip holds both bodies still. the server frees the limbs and anchors the roots, but this
 -- client owns the character's physics, so the Humanoid state, the push that tips it over and its own copy of the
--- anchor are set here. a body let go of mid grip goes back to Downed and tips over again
+-- anchor are set here. a body let go of mid grip goes back to Downed and tips over again. a wall pin is held the same
+-- way. a broken guard already can't walk, and AutoRotate off stops shift lock turning it with the camera
 local function body(c: Ctx)
 	local server: Types.CombatState = serverState(c)
 	local isDowned = server == "Downed"
-	local isHeld = server == "Gripping" or server == "Gripped"
-	if isDowned == isRagdolled and isHeld == isAnchored then
+	local isHeld = server == "Gripping" or server == "Gripped" or server == "WallStunned"
+	local isBroken = server == "PostureBroken"
+	if isDowned == isRagdolled and isHeld == isAnchored and isBroken == isRooted then
 		return
 	end
 	-- unanchored before the push, an anchored root doesn't take one
 	c.root.Anchored = isHeld
-	c.hum.AutoRotate = not isDowned and not isHeld
+	c.hum.AutoRotate = not isDowned and not isHeld and not isBroken
 	if isDowned ~= isRagdolled then
 		c.hum:ChangeState(if isDowned then Enum.HumanoidStateType.Physics else Enum.HumanoidStateType.Running)
 		if isDowned then
@@ -404,6 +432,7 @@ local function body(c: Ctx)
 	end
 	isRagdolled = isDowned
 	isAnchored = isHeld
+	isRooted = isBroken
 end
 
 -- a landing is never refused, see StateService.canMove
@@ -435,7 +464,9 @@ function CombatController.load(c: Ctx)
 	isParryOutOfStun = false
 	isRagdolled = false
 	isAnchored = false
+	isRooted = false
 	push = nil
+	pinAt = nil
 
 	local animator = c.hum:WaitForChild("Animator") :: Animator
 	local function loadTrack(id: string)
@@ -540,6 +571,11 @@ end)
 -- the victim's own client moves its character, so the server asks it to fly
 Remotes.Knockback.OnClientEvent:Connect(function(dir: Vector3, speed: number)
 	push = { velocity = dir * speed, untilAt = os.clock() + Config.KNOCKBACK_TIME }
+end)
+
+-- the server follows the knockback's path and tells the victim where it hit a wall, see CombatService.slam
+Remotes.WallSlam.OnClientEvent:Connect(function(pose: CFrame)
+	pinAt = pose
 end)
 
 -- a hit that doesn't knock back moves the victim along the attacker's step, see CombatService

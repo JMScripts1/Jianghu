@@ -12,6 +12,7 @@ local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local Types = require(ReplicatedStorage.Shared.Types)
 local Grip = require(script.Parent.Parent.Combat.Grip)
 local Hitbox = require(script.Parent.Parent.Combat.Hitbox)
+local Knockback = require(script.Parent.Parent.Combat.Knockback)
 local NpcAnimator = require(script.Parent.Parent.Combat.NpcAnimator)
 local Ping = require(script.Parent.Parent.Combat.Ping)
 local Ragdoll = require(script.Parent.Parent.Combat.Ragdoll)
@@ -25,6 +26,7 @@ type Swing = StateService.Swing
 -- typed so the old solver takes them as keys of cooldownUntil
 local PARRY: Types.CombatCooldown = "Parry"
 local DELAY: Types.CombatCooldown = "Delay"
+local LIGHT: Types.CombatCooldown = "Light"
 
 local RUN_CAP = Config.MOMENTUM_MAX * Config.RUN_ATTACK_LUNGE
 local RUN_RANGE = Config.MOMENTUM_MAX - Config.RUN_SPEED
@@ -126,7 +128,7 @@ local function isFront(target: BasePart, attacker: BasePart): boolean
 end
 
 -- the server owns NPCs, so it pushes them itself. the mover only lives as long as the push
-local function push(root: BasePart, velocity: Vector3, duration: number)
+local function push(root: BasePart, velocity: Vector3, duration: number): Attachment
 	local attach = Instance.new("Attachment")
 	attach.Parent = root
 
@@ -143,19 +145,23 @@ local function push(root: BasePart, velocity: Vector3, duration: number)
 	task.delay(duration, function()
 		attach:Destroy()
 	end)
+	return attach
 end
 
--- a player's own client moves its character, so the server can only exempt it and ask it to fly
-local function knockback(target: Model, root: BasePart, from: BasePart, speed: number)
+-- a player's own client moves its character, so the server can only exempt it and ask it to fly. either way the
+-- server follows the path itself for a wall, see Knockback
+local function knockback(target: Model, root: BasePart, from: BasePart, speed: number, now: number)
 	local look = from.CFrame.LookVector
 	local dir = Vector3.new(look.X, 0, look.Z).Unit
 	local plr = Players:GetPlayerFromCharacter(target)
+	local mover: Attachment? = nil
 	if plr then
 		StateService.exempt(target, KNOCKBACK_EXEMPT)
 		Remotes.Knockback:FireClient(plr, dir, speed)
 	elseif not root.Anchored then
-		push(root, dir * speed, Config.KNOCKBACK_TIME)
+		mover = push(root, dir * speed, Config.KNOCKBACK_TIME)
 	end
+	Knockback.start(target, root, dir * speed, now, mover)
 end
 
 -- a hit that doesn't knock back still moves its target along the attacker's step, as far as the attacker came in, so
@@ -239,6 +245,13 @@ local function resolve(
 		return "Broken"
 	end
 
+	-- the first hit on a broken guard ends the break and sends the body flying, so the fight picks back up from range
+	local isBreakHit = now < combat.brokenUntil
+	if isBreakHit then
+		combat.brokenUntil = now
+		combat.stunnedUntil = now
+	end
+
 	-- a delayed hit can't be parried out of, and stuns longer the longer it was held
 	local bonus = if swing.isDelayed then Config.DELAY_STUN * math.min(1, swing.held / Config.DELAY_FULL) else 0
 	stun(st, now + def.stun + bonus)
@@ -247,14 +260,55 @@ local function resolve(
 		-- the client predicts its own parries, so it has to know which stuns it can't parry out of
 		target:SetAttribute("LockedUntil", combat.lockedUntil)
 	end
-	damage(target, st, def.damage * swing.power, true, now)
+	damage(target, st, def.damage * swing.power * (if isBreakHit then Config.BREAK_HIT_DAMAGE else 1), true, now)
 	-- a delayed light doesn't knock back, so a delayed finisher carries the string on
-	if def.knockback and not (swing.isDelayed and swing.kind == "Light") then
-		knockback(target, root, from, def.knockback)
+	local speed = if isBreakHit
+		then Config.BREAK_KNOCKBACK
+		elseif swing.isDelayed and swing.kind == "Light" then nil
+		else def.knockback
+	if speed then
+		knockback(target, root, from, speed, now)
 		return "Knocked"
 	end
 	shove(target, root, from, swing.lunge)
 	return "Hit"
+end
+
+-- a knockback that meets a wall pins the body to it with its back to the wall, a true stun that also takes posture and
+-- a little damage, so the attacker has time to close in. another before WALL_IMMUNITY only stops there, the way the
+-- reference keeps a wall from pinning someone for good (R10.3)
+local function slam(char: Model, hit: RaycastResult)
+	local st = StateService.get(char)
+	local root = StateService.liveRoot(char)
+	local now = workspace:GetServerTimeNow()
+	if not st or not root or st.combat.downed or now < st.combat.wallImmuneUntil then
+		return
+	end
+	local combat = st.combat
+	changePosture(char, -Config.WALL_POSTURE)
+	damage(char, st, Config.WALL_DAMAGE, true, now)
+	if combat.downed then
+		return
+	end
+	combat.wallImmuneUntil = now + Config.WALL_IMMUNITY
+	combat.wallUntil = now + Config.WALL_STUN
+	stun(st, combat.wallUntil)
+	active[char] = true
+
+	local out = Vector3.new(hit.Normal.X, 0, hit.Normal.Z).Unit
+	local at = hit.Position + out * Config.WALL_SLAM_OFFSET
+	at = Vector3.new(at.X, root.Position.Y, at.Z)
+	local pose = CFrame.lookAt(at, at + out)
+	local plr = Players:GetPlayerFromCharacter(char)
+	if plr then
+		Remotes.WallSlam:FireClient(plr, pose)
+	elseif not root.Anchored then
+		root.CFrame = pose
+	end
+	StateService.publish(char)
+	if Config.DEBUG then
+		print("wall slam", char.Name)
+	end
 end
 
 -- stuns and damage run from when it lands, so a held string keeps its rhythm. only the dodge and parry look back
@@ -334,6 +388,9 @@ local function settle(char: Model, st: CharState, now: number)
 	if not id then
 		st.combat.comboAt = endsAt
 		st.combat.swing = nil
+		if CombatDefs.isFinisher(st.combat.weapon, swing.id) then
+			st.combat.cooldownUntil[LIGHT] = endsAt + CombatDefs.cooldowns[LIGHT]
+		end
 		return
 	end
 
@@ -409,7 +466,7 @@ local function attack(
 	local combat = st.combat
 
 	-- a light that lands just before the swing ends is the next hit, and starts exactly when that one ends. a strike
-	-- with a follow isn't really ending, so nothing queues behind it
+	-- with a follow isn't really ending, and a string's last hit has endlag after it, so nothing queues behind either
 	local start = now
 	local current = combat.swing
 	if current then
@@ -421,6 +478,7 @@ local function attack(
 			or now < activeUntil
 			or endsAt - now > Config.COMBAT_TOLERANCE
 			or AttackDefs[current.id].follow
+			or CombatDefs.isFinisher(combat.weapon, current.id)
 		then
 			return false
 		end
@@ -559,6 +617,7 @@ end
 
 local function step()
 	local now = workspace:GetServerTimeNow()
+	Knockback.step(now, slam)
 	local i = 1
 	while i <= #held do
 		local h = held[i]
@@ -606,6 +665,7 @@ local function step()
 			and not combat.isBlockHeld
 			and now >= combat.stunnedUntil
 			and now >= combat.brokenUntil
+			and now >= combat.wallUntil
 			and now >= combat.parryUntil
 		then
 			active[char] = nil
@@ -671,6 +731,7 @@ end
 -- before StateService.remove, a gripper leaving still has to let its victim go
 function CombatService.remove(char: Model)
 	Grip.remove(char)
+	Knockback.stop(char)
 	characters[char] = nil
 	Hitbox.remove(char)
 	Ragdoll.remove(char)

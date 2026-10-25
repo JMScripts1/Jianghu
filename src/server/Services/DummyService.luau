@@ -167,8 +167,8 @@ local function step(model: Model, d: Dummy, now: number)
 		d.releaseAt = nil
 		CombatService.act(model, "Release")
 	end
-	-- turning a ragdoll to face someone would stand it back up
-	if m == "Idle" or combat.downed then
+	-- turning a ragdoll to face someone would stand it back up, and a broken guard or a pinned body stays put
+	if m == "Idle" or combat.downed or now < combat.brokenUntil or now < combat.wallUntil then
 		return
 	end
 

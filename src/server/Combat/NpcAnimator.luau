@@ -26,7 +26,11 @@ type Npc = {
 }
 
 -- being hit cuts the swing short, the same states CombatController cancels its own on
-local CUTS_SWING: { [Types.CombatState]: true } = { Stunned = true, PostureBroken = true, Downed = true }
+local CUTS_SWING: { [Types.CombatState]: true } =
+	{ Stunned = true, PostureBroken = true, WallStunned = true, Downed = true }
+
+-- a pin holds its own pose, so it cuts a one shot still playing, like the knockback's, and none plays over it
+local HOLDS_POSE: { [Types.CombatState]: true } = { WallStunned = true }
 
 local NpcAnimator = {}
 
@@ -73,6 +77,10 @@ local function onState(char: Model)
 	if CUTS_SWING[state] then
 		stop(npc.swinging)
 		npc.swinging = nil
+	end
+	if HOLDS_POSE[state] then
+		stop(npc.oneShot)
+		npc.oneShot = nil
 	end
 
 	-- Idle and Attacking have no slot at all
@@ -142,7 +150,7 @@ end
 function NpcAnimator.react(char: Model, name: Types.Reaction)
 	local npc = npcs[char]
 	local ids = reactions(char)[name]
-	if not npc or not ids or #ids == 0 then
+	if not npc or not ids or #ids == 0 or HOLDS_POSE[StateService.combatState(char)] then
 		return
 	end
 	local turn = (npc.turns[name] or 0) % #ids + 1

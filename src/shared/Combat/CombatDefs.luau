@@ -15,12 +15,14 @@ local DEFAULT_WEAPON: Types.WeaponId = "fist"
 -- typed so the old solver takes them as keys of a cooldown table
 local HEAVY: Types.CombatCooldown = "Heavy"
 local RUN: Types.CombatCooldown = "Run"
+local LIGHT: Types.CombatCooldown = "Light"
 
 local COOLDOWNS: { [Types.CombatCooldown]: number } = {
 	Parry = Config.PARRY_COOLDOWN,
 	Heavy = Config.HEAVY_COOLDOWN,
 	Delay = Config.DELAY_COOLDOWN,
 	Run = Config.RUN_ATTACK_COOLDOWN,
+	Light = Config.STRING_ENDLAG,
 }
 
 type Row = {
@@ -46,6 +48,8 @@ local rows: { [Types.CombatState]: Row } = {
 	Blocking = { actions = { "Light", "Heavy" }, moves = GUARDED },
 	Stunned = { actions = {}, moves = SLOWED },
 	PostureBroken = { actions = {}, moves = SLOWED },
+	-- the client anchors itself to the wall for the length of it
+	WallStunned = { actions = {}, moves = SLOWED },
 	-- standing still is allowed, the walk speed of 0 is what keeps it down
 	Downed = { actions = {}, moves = SLOWED },
 	-- both bodies are anchored for the length of it. Grip again lets go
@@ -175,8 +179,17 @@ local function pick(
 		return { id = def.run, kind = "Run", combo = 0, cooldown = RUN }
 	end
 
+	if not isReady(LIGHT) then
+		return nil
+	end
 	local count = if sinceLast > Config.COMBO_RESET or combo >= #def.light then 1 else combo + 1
 	return { id = def.light[count], kind = "Light", combo = count }
+end
+
+-- the last hit of its string, the one with endlag after it
+local function isFinisher(weapon: Types.WeaponId, id: Types.AttackId): boolean
+	local light = WeaponDefs[weapon].light
+	return light[#light] == id
 end
 
 return table.freeze({
@@ -188,4 +201,5 @@ return table.freeze({
 	pick = pick,
 	canParry = canParry,
 	reaction = reaction,
+	isFinisher = isFinisher,
 })

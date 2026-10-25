@@ -69,6 +69,9 @@ export type CharState = {
 		-- no parry out of stun until this, set by heavy stuns
 		lockedUntil: number,
 		brokenUntil: number,
+		-- pinned to a wall until this, and no new pin until wallImmuneUntil, see CombatService.slam
+		wallUntil: number,
+		wallImmuneUntil: number,
 		parryUntil: number,
 		-- where the parry window opened by the player's own screen, see Ping. parryUntil is the state, this is what a hit
 		-- is judged against
@@ -135,6 +138,8 @@ function StateService.add(char: Model)
 			stunnedUntil = 0,
 			lockedUntil = 0,
 			brokenUntil = 0,
+			wallUntil = 0,
+			wallImmuneUntil = 0,
 			parryUntil = 0,
 			parryFrom = 0,
 			cooldownUntil = {},
@@ -213,6 +218,8 @@ function StateService.combatState(char: Model): Types.CombatState
 		return "Downed"
 	elseif now < combat.brokenUntil then
 		return "PostureBroken"
+	elseif now < combat.wallUntil then
+		return "WallStunned"
 	elseif now < combat.parryUntil then
 		return "Parrying"
 	elseif now < combat.stunnedUntil then

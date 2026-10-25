@@ -85,6 +85,8 @@ export type CombatState =
 	| "Blocking"
 	| "Stunned"
 	| "PostureBroken"
+	-- pinned to a wall a knockback threw it into
+	| "WallStunned"
 	| "Downed"
 	| "Gripping"
 	-- a downed body in someone's grip
@@ -117,7 +119,8 @@ export type Grip = {
 	killAt: number,
 }
 
-export type CombatCooldown = "Parry" | "Heavy" | "Delay" | "Run"
+-- Light is the endlag after a string's last hit, started when that swing ends
+export type CombatCooldown = "Parry" | "Heavy" | "Delay" | "Run" | "Light"
 
 export type WeaponId = "fist" | "dagger"
 

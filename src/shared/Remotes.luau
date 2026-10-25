@@ -31,6 +31,7 @@ return table.freeze({
 	CombatDeny = remote("CombatDeny"),
 	Knockback = remote("Knockback"),
 	Shove = remote("Shove"),
+	WallSlam = remote("WallSlam"),
 	Equip = remote("Equip"),
 	Ping = remote("Ping"),
 	CombatFx = unreliable("CombatFx"),

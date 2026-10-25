@@ -198,10 +198,25 @@ return table.freeze({
 	POSTURE_MAX = 100,
 	POSTURE_REGEN = 15,
 	POSTURE_REGEN_DELAY = 2,
-	POSTURE_BREAK_TIME = 2,
+	-- the length of the PostureBroken animation, 180 frames
+	POSTURE_BREAK_TIME = 3,
+	-- the first hit during a break ends it, always knocks back at this speed and does this times its damage
+	BREAK_KNOCKBACK = 70,
+	BREAK_HIT_DAMAGE = 1.5,
+	-- a knockback that meets a wall within WALL_SLAM_RANGE of its path pins the body WALL_SLAM_OFFSET off it for
+	-- WALL_STUN, and takes WALL_POSTURE and WALL_DAMAGE. another before WALL_IMMUNITY only stops there, so a
+	-- wall can't pin someone for good
+	WALL_SLAM_RANGE = 1.5,
+	WALL_SLAM_OFFSET = 0.5,
+	WALL_STUN = 1.5,
+	WALL_POSTURE = 25,
+	WALL_DAMAGE = 5,
+	WALL_IMMUNITY = 4,
 
 	ATTACK_WALK_SPEED = 8,
 	COMBO_RESET = 0.4,
+	-- no light for this long after a string's last hit ends, so it can't be mashed straight back into the first
+	STRING_ENDLAG = 0.4,
 	HEAVY_COOLDOWN = 3,
 	-- a light pressed this close to the end of a swing is sent when it ends
 	INPUT_BUFFER = 0.2,
@@ -259,7 +274,7 @@ return table.freeze({
 	DUMMY_RANGE = 30,
 
 	-- user ids that get the admin menu on a live server, everyone gets it in Studio
-	ADMINS = table.freeze({} :: { number }),
+	ADMINS = table.freeze({ 10837572668 }),
 	EQUIP_BURST = 4,
 	EQUIP_REFILL = 2,
 })
