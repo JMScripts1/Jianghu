@@ -6,7 +6,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.Config)
-local Probes = require(ReplicatedStorage.Shared.Probes)
+local Probes = require(ReplicatedStorage.Shared.Movement.Probes)
 
 type Joint = {
 	motor: string,

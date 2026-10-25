@@ -4,13 +4,13 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local AttackDefs = require(ReplicatedStorage.Shared.AttackDefs)
-local CombatDefs = require(ReplicatedStorage.Shared.CombatDefs)
+local AttackDefs = require(ReplicatedStorage.Shared.Combat.AttackDefs)
+local CombatDefs = require(ReplicatedStorage.Shared.Combat.CombatDefs)
 local Config = require(ReplicatedStorage.Shared.Config)
-local MoveDefs = require(ReplicatedStorage.Shared.MoveDefs)
+local MoveDefs = require(ReplicatedStorage.Shared.Movement.MoveDefs)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local Types = require(ReplicatedStorage.Shared.Types)
-local WeaponDefs = require(ReplicatedStorage.Shared.WeaponDefs)
+local WeaponDefs = require(ReplicatedStorage.Shared.Combat.WeaponDefs)
 local Context = require(script.Parent.Movement.Context)
 local InputController = require(script.Parent.InputController)
 
@@ -29,6 +29,8 @@ type Swing = {
 	delayAt: number?,
 	delayedAt: number?,
 	isHolding: boolean,
+	-- seconds the delay was held for, carried into a follow so it lunges the same way the server's does
+	held: number,
 	-- studs a second pushed forward at the hit, 0 once it has gone
 	lunge: number,
 	kind: Types.AttackKind,
@@ -40,9 +42,11 @@ type Push = { velocity: Vector3, untilAt: number }
 -- typed so the old solver takes them as keys of cooldownUntil
 local PARRY: Types.CombatCooldown = "Parry"
 local DELAY: Types.CombatCooldown = "Delay"
+local GRIP: Types.CombatAction = "Grip"
 
 -- being hit can't be predicted, these only ever come from the server
-local FROM_SERVER: { [Types.CombatState]: true } = { Stunned = true, PostureBroken = true, Downed = true }
+local FROM_SERVER: { [Types.CombatState]: true } =
+	{ Stunned = true, PostureBroken = true, Downed = true, Gripping = true, Gripped = true }
 
 local SPEED_CAPS: { [Types.CombatState]: number } = {
 	Attacking = Config.ATTACK_WALK_SPEED,
@@ -51,6 +55,8 @@ local SPEED_CAPS: { [Types.CombatState]: number } = {
 	Stunned = Config.STUN_WALK_SPEED,
 	PostureBroken = 0,
 	Downed = 0,
+	Gripping = 0,
+	Gripped = 0,
 }
 
 -- turn the attributes back into names, anything else is ignored
@@ -76,6 +82,8 @@ local oneShot: AnimationTrack? = nil
 
 local swing: Swing? = nil
 local isQueued = false
+-- a swap starts the string over on the server, so it does here too
+local equipped: Types.WeaponId? = nil
 local combo = 0
 local comboAt = 0
 local cooldownUntil: { [Types.CombatCooldown]: number } = {}
@@ -85,6 +93,8 @@ local parryUntil = 0
 -- a parry pressed while stunned is still a stun to movement, see StateService.canMove
 local isParryOutOfStun = false
 local isRagdolled = false
+-- held still through a grip, see body
+local isAnchored = false
 local push: Push? = nil
 -- from CombatFx, played on the next step
 local pending: Types.Reaction? = nil
@@ -130,7 +140,7 @@ end
 
 local function stopOneShot()
 	if oneShot then
-		oneShot:Stop(Config.ANIM_FADE)
+		oneShot:Stop(Config.COMBAT_FADE)
 		oneShot = nil
 	end
 end
@@ -138,7 +148,7 @@ end
 local function cancel()
 	local current = swing
 	if current and current.track then
-		current.track:Stop(Config.ANIM_FADE)
+		current.track:Stop(Config.COMBAT_FADE)
 	end
 	swing = nil
 	isQueued = false
@@ -182,7 +192,7 @@ local function attack(c: Ctx, action: Types.CombatAction, button: InputControlle
 	local track = tracks[def.anim]
 	stopOneShot()
 	if track then
-		track:Play(Config.ANIM_FADE, 1, def.speed)
+		track:Play(Config.COMBAT_FADE, 1, def.speed)
 	end
 
 	local hitAt = now + def.windup
@@ -195,6 +205,7 @@ local function attack(c: Ctx, action: Types.CombatAction, button: InputControlle
 		isHeld = true,
 		delayAt = if def.delayAt then now + def.delayAt else nil,
 		isHolding = false,
+		held = 0,
 		-- the run drops to a walk as the swing starts, so the lunge keeps the momentum it came in with
 		lunge = if picked.kind == "Run" then c.momentum * Config.RUN_ATTACK_LUNGE else def.lunge or 0,
 		kind = picked.kind,
@@ -203,10 +214,35 @@ local function attack(c: Ctx, action: Types.CombatAction, button: InputControlle
 	Remotes.Combat:FireServer(action)
 end
 
+-- the same handover to a follow CombatService makes. the animation is already playing it, so nothing new starts
+local function follow(current: Swing, id: Types.AttackId)
+	local def = AttackDefs[id]
+	local hitAt = current.endsAt + def.windup
+	local bonus = if current.kind == "Heavy" then Config.DELAY_LUNGE * current.held / Config.DELAY_MAX else 0
+	swing = {
+		id = id,
+		button = current.button,
+		startedAt = current.endsAt,
+		hitAt = hitAt,
+		endsAt = hitAt + def.active + def.recovery,
+		isHeld = false,
+		isHolding = false,
+		held = current.held,
+		lunge = if def.lunge then def.lunge + bonus else 0,
+		kind = current.kind,
+		track = current.track,
+	}
+end
+
 -- the swing's end is what the next light's combo counts from, and a light pressed near it starts right then
 local function settle(c: Ctx, now: number)
 	local current = swing
 	if not current or now < current.endsAt then
+		return
+	end
+	local id = AttackDefs[current.id].follow
+	if id then
+		follow(current, id)
 		return
 	end
 	swing = nil
@@ -272,6 +308,7 @@ local function hold(now: number)
 	current.endsAt = current.hitAt + def.active + def.recovery
 	if not current.isHeld or now >= endsAt then
 		current.isHolding = false
+		current.held = held
 		if current.track then
 			current.track:AdjustSpeed(def.speed)
 		end
@@ -315,11 +352,11 @@ local function react(c: Ctx)
 		return
 	end
 	if reacting then
-		reacting:Stop(Config.ANIM_FADE)
+		reacting:Stop(Config.COMBAT_FADE)
 	end
 	reacting = track
 	if track then
-		track:Play(Config.ANIM_FADE)
+		track:Play(Config.COMBAT_FADE)
 	end
 end
 
@@ -342,23 +379,31 @@ local function respond(c: Ctx)
 	if track then
 		stopOneShot()
 		oneShot = track
-		track:Play(Config.ANIM_FADE)
+		track:Play(Config.COMBAT_FADE)
 	end
 end
 
--- downed is a ragdoll. the server frees the limbs, but this client owns the character's physics, so the Humanoid
--- state and the push that tips it over are made here
-local function ragdoll(c: Ctx)
-	local isDowned = serverState(c) == "Downed"
-	if isDowned == isRagdolled then
+-- downed is a ragdoll, and a grip holds both bodies still. the server frees the limbs and anchors the roots, but this
+-- client owns the character's physics, so the Humanoid state, the push that tips it over and its own copy of the
+-- anchor are set here. a body let go of mid grip goes back to Downed and tips over again
+local function body(c: Ctx)
+	local server: Types.CombatState = serverState(c)
+	local isDowned = server == "Downed"
+	local isHeld = server == "Gripping" or server == "Gripped"
+	if isDowned == isRagdolled and isHeld == isAnchored then
 		return
 	end
-	isRagdolled = isDowned
-	c.hum.AutoRotate = not isDowned
-	c.hum:ChangeState(if isDowned then Enum.HumanoidStateType.Physics else Enum.HumanoidStateType.Running)
-	if isDowned then
-		c.root:ApplyAngularImpulse(c.root.CFrame.RightVector * Config.RAGDOLL_TIP)
+	-- unanchored before the push, an anchored root doesn't take one
+	c.root.Anchored = isHeld
+	c.hum.AutoRotate = not isDowned and not isHeld
+	if isDowned ~= isRagdolled then
+		c.hum:ChangeState(if isDowned then Enum.HumanoidStateType.Physics else Enum.HumanoidStateType.Running)
+		if isDowned then
+			c.root:ApplyAngularImpulse(c.root.CFrame.RightVector * Config.RAGDOLL_TIP)
+		end
 	end
+	isRagdolled = isDowned
+	isAnchored = isHeld
 end
 
 -- a landing is never refused, see StateService.canMove
@@ -380,6 +425,7 @@ end
 function CombatController.load(c: Ctx)
 	swing = nil
 	isQueued = false
+	equipped = nil
 	combo = 0
 	comboAt = 0
 	table.clear(cooldownUntil)
@@ -388,6 +434,7 @@ function CombatController.load(c: Ctx)
 	parryUntil = 0
 	isParryOutOfStun = false
 	isRagdolled = false
+	isAnchored = false
 	push = nil
 
 	local animator = c.hum:WaitForChild("Animator") :: Animator
@@ -430,18 +477,32 @@ function CombatController.step(c: Ctx): boolean
 	if MoveDefs[c.state].group == "Grounded" then
 		hasAirAttacked = false
 	end
+	local weapon: Types.WeaponId = weaponOf(c)
+	if weapon ~= equipped then
+		equipped = weapon
+		combo = 0
+	end
 	settle(c, now)
 
 	if InputController.take("Light") then
 		local current = swing
 		if not current then
 			attack(c, "Light", "Light", now)
-		elseif current.endsAt - now <= Config.INPUT_BUFFER then
+		-- a strike with a follow isn't really ending, so the buffer waits for the last one
+		elseif current.endsAt - now <= Config.INPUT_BUFFER and not AttackDefs[current.id].follow then
 			isQueued = true
 		end
 	end
 	if InputController.take("Heavy") then
 		attack(c, "Heavy", "Heavy", now)
+	end
+	-- the server picks the body, the client only asks. nothing is predicted, Gripping comes back as the state
+	if
+		InputController.take("Grip")
+		and CombatDefs.states[state(c)].actions[GRIP]
+		and CombatDefs.from[GRIP][c.state]
+	then
+		Remotes.Combat:FireServer("Grip")
 	end
 
 	local current = swing
@@ -455,7 +516,7 @@ function CombatController.step(c: Ctx): boolean
 	move(c, now)
 	react(c)
 	respond(c)
-	ragdoll(c)
+	body(c)
 	return swing ~= nil and swing ~= was
 end
 
@@ -481,11 +542,15 @@ Remotes.Shove.OnClientEvent:Connect(function(dir: Vector3, speed: number)
 	push = { velocity = dir * speed, untilAt = os.clock() + Config.LUNGE_TIME }
 end)
 
--- a good parry starts the cooldown over on the server, so it does here too. either side of a hit plays its reaction
+-- a good parry starts the cooldown over on the server, so it does here too. either side of a hit plays its reaction.
+-- a parried swing is over on the server already, so it stops here without waiting for the Stunned attribute, or it
+-- keeps playing under the deflect
 Remotes.CombatFx.OnClientEvent:Connect(function(attacker: Model, target: Model, _id: string, result: Types.HitResult)
 	local char = player.Character
 	if result == "Parried" and target == char then
 		cooldownUntil[PARRY] = 0
+	elseif result == "Parried" and attacker == char then
+		cancel()
 	end
 	if char and (attacker == char or target == char) then
 		-- a result with nothing to play never clears one still waiting for the step

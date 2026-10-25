@@ -5,14 +5,16 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
-local AttackDefs = require(ReplicatedStorage.Shared.AttackDefs)
-local CombatDefs = require(ReplicatedStorage.Shared.CombatDefs)
+local AttackDefs = require(ReplicatedStorage.Shared.Combat.AttackDefs)
+local CombatDefs = require(ReplicatedStorage.Shared.Combat.CombatDefs)
 local Config = require(ReplicatedStorage.Shared.Config)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local Types = require(ReplicatedStorage.Shared.Types)
-local Hitbox = require(script.Parent.Parent.Hitbox)
-local NpcAnimator = require(script.Parent.Parent.NpcAnimator)
-local Ragdoll = require(script.Parent.Parent.Ragdoll)
+local Grip = require(script.Parent.Parent.Combat.Grip)
+local Hitbox = require(script.Parent.Parent.Combat.Hitbox)
+local NpcAnimator = require(script.Parent.Parent.Combat.NpcAnimator)
+local Ragdoll = require(script.Parent.Parent.Combat.Ragdoll)
+local WeaponModels = require(script.Parent.Parent.Combat.WeaponModels)
 local RateLimit = require(script.Parent.Parent.RateLimit)
 local StateService = require(script.Parent.StateService)
 
@@ -37,24 +39,18 @@ local ACTIONS: { [string]: Types.CombatAction } = {
 	Release = "Release",
 	Block = "Block",
 	Unblock = "Unblock",
+	Grip = "Grip",
 }
 
 local CombatService = {}
 
--- players and NPCs alike, everything regen looks after
+-- players and NPCs alike, everything regen looks after and a grip can find
 local characters: { [Model]: true } = {}
 -- characters with a live swing, a held block or an end time still ahead. the step only looks at these
 local active: { [Model]: true } = {}
 
 local function isReady(st: CharState, name: Types.CombatCooldown, now: number): boolean
 	return now + Config.COOLDOWN_TOLERANCE >= (st.combat.cooldownUntil[name] or 0)
-end
-
-local function publish(char: Model)
-	local state = StateService.combatState(char)
-	if char:GetAttribute("CombatState") ~= state then
-		char:SetAttribute("CombatState", state)
-	end
 end
 
 local function changePosture(char: Model, amount: number, wait: number?): number
@@ -106,15 +102,6 @@ local function stun(st: CharState, untilTime: number)
 	combat.swing = nil
 	combat.combo = 0
 	combat.parryUntil = 0
-end
-
--- the swing's end is what the next light's combo counts from
-local function settle(st: CharState, now: number)
-	local swing = st.combat.swing
-	if swing and swing.endsAt and now >= swing.endsAt then
-		st.combat.comboAt = swing.endsAt
-		st.combat.swing = nil
-	end
 end
 
 local function isFront(target: BasePart, attacker: BasePart): boolean
@@ -207,6 +194,8 @@ local function resolve(
 	if def.canDodge and now < st.dash.dodgeUntil then
 		return "Dodged"
 	end
+	-- a gripper can't guard, so a hit lets go first and lands on a body that's free to be pushed
+	Grip.release(target, st, false)
 	combat.taggedUntil = now + Config.COMBAT_TAG
 	attackerSt.combat.taggedUntil = now + Config.COMBAT_TAG
 	active[target] = true
@@ -277,7 +266,7 @@ local function query(char: Model, st: CharState, swing: Swing, now: number)
 		count += 1
 
 		local result: Types.HitResult? = resolve(char, st, target, def, swing, now)
-		publish(target)
+		StateService.publish(target)
 		if result then
 			fx(char, target, swing.id, result)
 			NpcAnimator.result(char, target, result)
@@ -303,6 +292,36 @@ local function setHit(char: Model, swing: Swing, def: Types.AttackDef, hitAt: nu
 	end
 end
 
+-- the swing's end is what the next light's combo counts from. a strike with a follow hands straight on to it instead,
+-- in the same animation, carrying its delay so the second strike keeps the bonus and lands that much later too
+local function settle(char: Model, st: CharState, now: number)
+	local swing = st.combat.swing
+	local endsAt = if swing then swing.endsAt else nil
+	if not swing or not endsAt or now < endsAt then
+		return
+	end
+	local id = AttackDefs[swing.id].follow
+	if not id then
+		st.combat.comboAt = endsAt
+		st.combat.swing = nil
+		return
+	end
+
+	local nextSwing: Swing = {
+		id = id,
+		kind = swing.kind,
+		startedAt = endsAt,
+		isHeld = false,
+		isDelayed = swing.isDelayed,
+		held = swing.held,
+		power = swing.power,
+		lunge = 0,
+		hit = {},
+	}
+	st.combat.swing = nextSwing
+	setHit(char, nextSwing, AttackDefs[id], endsAt + AttackDefs[id].windup)
+end
+
 -- a player's own client pushes its lunge, the server only moves NPCs
 local function lunge(char: Model, speed: number)
 	local root = StateService.liveRoot(char)
@@ -326,7 +345,9 @@ local function advance(char: Model, st: CharState, swing: Swing, now: number)
 		local reachedAt = swing.startedAt + delayAt
 		if now < reachedAt then
 			return
-		elseif not swing.isHeld or not isReady(st, DELAY, reachedAt) then
+		-- no tolerance here, the client makes the same call to slow its animation and has none. with give the server
+		-- would delay a swing the client played on time
+		elseif not swing.isHeld or reachedAt < (st.combat.cooldownUntil[DELAY] or 0) then
 			setHit(char, swing, def, swing.startedAt + def.windup)
 			return
 		end
@@ -357,13 +378,20 @@ local function attack(
 ): boolean
 	local combat = st.combat
 
-	-- a light that lands just before the swing ends is the next hit, and starts exactly when that one ends
+	-- a light that lands just before the swing ends is the next hit, and starts exactly when that one ends. a strike
+	-- with a follow isn't really ending, so nothing queues behind it
 	local start = now
 	local current = combat.swing
 	if current then
 		local endsAt = current.endsAt
 		local activeUntil = current.activeUntil
-		if not endsAt or not activeUntil or now < activeUntil or endsAt - now > Config.COMBAT_TOLERANCE then
+		if
+			not endsAt
+			or not activeUntil
+			or now < activeUntil
+			or endsAt - now > Config.COMBAT_TOLERANCE
+			or AttackDefs[current.id].follow
+		then
 			return false
 		end
 		start = endsAt
@@ -433,6 +461,24 @@ local function block(st: CharState, state: Types.CombatState, move: Types.MoveSt
 	end
 end
 
+-- refused mid swing, in a grip or anything worse than standing or blocking. the combo starts over, and the cooldowns
+-- stay with the character so a swap can't skip one
+function CombatService.equip(char: Model, weapon: Types.WeaponId): boolean
+	local st = StateService.get(char)
+	if not st or not StateService.liveRoot(char) then
+		return false
+	end
+	local state: Types.CombatState = StateService.combatState(char)
+	if state ~= "Idle" and state ~= "Blocking" then
+		return false
+	end
+	st.combat.weapon = weapon
+	st.combat.combo = 0
+	char:SetAttribute("Weapon", weapon)
+	WeaponModels.hold(char, weapon)
+	return true
+end
+
 -- the one way in for players and NPCs. the remote handler does the rate limit and type checks before this
 function CombatService.act(char: Model, action: Types.CombatAction): boolean
 	local st = StateService.get(char)
@@ -441,7 +487,7 @@ function CombatService.act(char: Model, action: Types.CombatAction): boolean
 	end
 
 	local now = workspace:GetServerTimeNow()
-	settle(st, now)
+	settle(char, st, now)
 	local state: Types.CombatState = StateService.combatState(char)
 	local move: Types.MoveState = StateService.current(char)
 	if not CombatDefs.states[state].actions[action] or not CombatDefs.from[action][move] then
@@ -450,6 +496,13 @@ function CombatService.act(char: Model, action: Types.CombatAction): boolean
 
 	if action == "Light" or action == "Heavy" then
 		if not attack(char, st, action, move, now) then
+			return false
+		end
+	elseif action == "Grip" then
+		-- pressed again mid grip, it lets go the same as being cut short
+		if st.combat.grip then
+			Grip.release(char, st, false)
+		elseif not Grip.start(char, st, now, characters) then
 			return false
 		end
 	elseif action == "Block" then
@@ -468,7 +521,7 @@ function CombatService.act(char: Model, action: Types.CombatAction): boolean
 	end
 
 	active[char] = true
-	publish(char)
+	StateService.publish(char)
 	return true
 end
 
@@ -476,13 +529,15 @@ local function step()
 	local now = workspace:GetServerTimeNow()
 	-- resolving a hit brings the target in, so the set is walked from a copy
 	for char in table.clone(active) do
+		-- a body a grip finished is left lying, its downed timer never stands it back up
 		local st = StateService.get(char)
-		if not st then
+		if not st or not StateService.liveRoot(char) then
 			active[char] = nil
 			continue
 		end
 		local combat = st.combat
-		if combat.downed and now >= combat.downedAt + Config.DOWNED_TIME then
+		Grip.step(char, st, now)
+		if combat.downed and not combat.grippedBy and now >= combat.downedAt + Config.DOWNED_TIME then
 			getUp(char, st)
 		end
 
@@ -499,11 +554,12 @@ local function step()
 			local nextAt = queryAt + Config.ACTIVE_STEP
 			swing.nextQueryAt = if swing.activeUntil and nextAt <= swing.activeUntil then nextAt else nil
 		end
-		settle(st, now)
-		publish(char)
+		settle(char, st, now)
+		StateService.publish(char)
 
 		if
 			not combat.downed
+			and not combat.grip
 			and not combat.swing
 			and not combat.isBlockHeld
 			and now >= combat.stunnedUntil
@@ -555,6 +611,10 @@ end
 
 -- players and NPCs alike, after StateService.add
 function CombatService.add(char: Model)
+	-- downed is a ragdoll and a grip kills one, neither may take the joints apart
+	local hum = char:FindFirstChildOfClass("Humanoid") :: Humanoid
+	hum.BreakJointsOnDeath = false
+	hum.RequiresNeck = false
 	characters[char] = true
 	Hitbox.add(char)
 	Ragdoll.add(char)
@@ -563,12 +623,16 @@ function CombatService.add(char: Model)
 	char:SetAttribute("LockedUntil", 0)
 	-- the client picks its predicted attacks from this, the server's own copy is combat.weapon
 	char:SetAttribute("Weapon", CombatDefs.defaultWeapon)
+	WeaponModels.hold(char, CombatDefs.defaultWeapon)
 end
 
+-- before StateService.remove, a gripper leaving still has to let its victim go
 function CombatService.remove(char: Model)
+	Grip.remove(char)
 	characters[char] = nil
 	Hitbox.remove(char)
 	Ragdoll.remove(char)
+	WeaponModels.remove(char)
 	active[char] = nil
 end
 

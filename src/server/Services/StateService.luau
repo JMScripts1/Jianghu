@@ -3,9 +3,9 @@
 -- MIT licensed, see LICENSE. Feel free to remove this header.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local CombatDefs = require(ReplicatedStorage.Shared.CombatDefs)
+local CombatDefs = require(ReplicatedStorage.Shared.Combat.CombatDefs)
 local Config = require(ReplicatedStorage.Shared.Config)
-local MoveDefs = require(ReplicatedStorage.Shared.MoveDefs)
+local MoveDefs = require(ReplicatedStorage.Shared.Movement.MoveDefs)
 local Types = require(ReplicatedStorage.Shared.Types)
 
 -- hitAt is nil while a delay is being held, and the times after it wait on it
@@ -27,6 +27,13 @@ export type Swing = {
 	-- studs a second pushed forward at the hit, set with the hit time
 	lunge: number,
 	hit: { [Model]: true },
+}
+
+-- a grip in progress, on the gripper. both halves of the animation are kept to stop if it's cut short
+export type GripRun = {
+	victim: Model,
+	endsAt: number,
+	tracks: { AnimationTrack },
 }
 
 export type CharState = {
@@ -68,6 +75,9 @@ export type CharState = {
 		hasAirAttacked: boolean,
 		downed: boolean,
 		downedAt: number,
+		grip: GripRun?,
+		-- a downed body held in someone's grip doesn't get back up
+		grippedBy: Model?,
 		taggedUntil: number,
 	},
 	posture: {
@@ -193,7 +203,9 @@ function StateService.combatState(char: Model): Types.CombatState
 	local combat = states[char].combat
 	local now = workspace:GetServerTimeNow()
 
-	if combat.downed then
+	if combat.grippedBy then
+		return "Gripped"
+	elseif combat.downed then
 		return "Downed"
 	elseif now < combat.brokenUntil then
 		return "PostureBroken"
@@ -201,12 +213,22 @@ function StateService.combatState(char: Model): Types.CombatState
 		return "Parrying"
 	elseif now < combat.stunnedUntil then
 		return "Stunned"
+	elseif combat.grip then
+		return "Gripping"
 	elseif isSwinging(combat.swing, now) then
 		return "Attacking"
 	elseif combat.isBlockHeld and CombatDefs.guard[StateService.current(char)] then
 		return "Blocking"
 	end
 	return "Idle"
+end
+
+-- clients see the derived state through this attribute, set only when it changes
+function StateService.publish(char: Model)
+	local state = StateService.combatState(char)
+	if char:GetAttribute("CombatState") ~= state then
+		char:SetAttribute("CombatState", state)
+	end
 end
 
 -- a landing is never refused, a character stunned in the air still has to come down and get its jumps back
@@ -222,12 +244,13 @@ function StateService.canMove(char: Model, to: Types.MoveState): boolean
 	return CombatDefs.states[state].moves[to] == true
 end
 
--- held only counts where a block works, and never through a stun or a swing
+-- held only counts where a block works, and never through a stun, a swing or a grip
 function StateService.isBlocking(char: Model): boolean
 	local combat = states[char].combat
 	local now = workspace:GetServerTimeNow()
 	return combat.isBlockHeld
 		and not combat.downed
+		and not combat.grip
 		and now >= combat.stunnedUntil
 		and now >= combat.brokenUntil
 		and not isSwinging(combat.swing, now)

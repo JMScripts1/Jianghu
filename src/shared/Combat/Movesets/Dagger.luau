@@ -1,0 +1,105 @@
+--!strict
+-- Jianghu by Ruha.luau (github.com/JMScripts1)
+-- MIT licensed, see LICENSE. Feel free to remove this header.
+local Types = require(script.Parent.Parent.Parent.Types)
+
+-- the light anims are 43 frames at 60 fps and the stab lands about frame 25. the server starts the swing half a ping
+-- late, so the box checks from a few frames before that through just after. the three add up to the whole anim
+local LIGHT_WINDUP = 22 / 60
+local LIGHT_ACTIVE = 4 / 60
+local LIGHT_RECOVERY = 17 / 60
+-- hits land a whole anim apart, so the stun has to outlast that for a string to connect
+local LIGHT_STUN = 0.8
+
+local Dagger: Types.Moveset = {
+	light = {
+		{
+			anim = "rbxassetid://87060332838420",
+			windup = LIGHT_WINDUP,
+			active = LIGHT_ACTIVE,
+			recovery = LIGHT_RECOVERY,
+			stun = LIGHT_STUN,
+		},
+		{
+			anim = "rbxassetid://131389170421490",
+			windup = LIGHT_WINDUP,
+			active = LIGHT_ACTIVE,
+			recovery = LIGHT_RECOVERY,
+			stun = LIGHT_STUN,
+		},
+		{
+			anim = "rbxassetid://134208132284359",
+			windup = LIGHT_WINDUP,
+			active = LIGHT_ACTIVE,
+			recovery = LIGHT_RECOVERY,
+			stun = LIGHT_STUN,
+		},
+		{
+			anim = "rbxassetid://85923627322840",
+			windup = LIGHT_WINDUP,
+			active = LIGHT_ACTIVE,
+			recovery = LIGHT_RECOVERY,
+			stun = LIGHT_STUN,
+		},
+		-- the finisher, it knocks back unless delayed
+		{
+			anim = "rbxassetid://95038775984402",
+			windup = LIGHT_WINDUP,
+			active = LIGHT_ACTIVE,
+			recovery = LIGHT_RECOVERY,
+			damage = 5,
+			posture = 15,
+			stun = 0.85,
+			knockback = 50,
+		},
+	},
+	-- 83 frames, two swings. the first windup ends on frame 27 and its stab lands about 35 to 37, then the second
+	-- windup ends on 51 and its stab lands about 60. each is checked from a few frames before through just after, and
+	-- the second picks up the moment the first ends, so the five add up to the whole anim. the first is a plain hit
+	-- that holds the target for the second, which is the real crit
+	heavy = {
+		anim = "rbxassetid://70984112218280",
+		windup = 32 / 60,
+		delayAt = 22 / 60,
+		active = 6 / 60,
+		recovery = 0,
+		damage = 6,
+		posture = 15,
+		stun = 0.55,
+		lunge = 30,
+		knockback = 0,
+		canDodge = true,
+		isGuardBreak = false,
+		isHeavyStun = false,
+		follow = {
+			windup = 19 / 60,
+			active = 4 / 60,
+			recovery = 22 / 60,
+			damage = 14,
+			lunge = 40,
+			knockback = 70,
+		},
+	},
+	grip = {
+		anim = "rbxassetid://102379717060858",
+		victim = "rbxassetid://126464927360894",
+		offset = CFrame.new(0, 0, 0) * CFrame.Angles(0, math.pi, 0),
+		killAt = 105 / 60,
+	},
+	run = { anim = "" },
+	air = { anim = "" },
+	movement = {
+		Idle = "rbxassetid://137203815389780",
+		Walk = "rbxassetid://75792971332525",
+	},
+	reactions = {
+		Parrying = "rbxassetid://111421663323177",
+		Blocking = "rbxassetid://120953089487237",
+
+		Parry = "rbxassetid://87080884226868",
+		Deflected = "rbxassetid://101552023527184",
+		BlockHit = "rbxassetid://95408241331260",
+	},
+}
+
+return Dagger

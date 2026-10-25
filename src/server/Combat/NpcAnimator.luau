@@ -3,12 +3,12 @@
 -- MIT licensed, see LICENSE. Feel free to remove this header.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local AttackDefs = require(ReplicatedStorage.Shared.AttackDefs)
-local CombatDefs = require(ReplicatedStorage.Shared.CombatDefs)
+local AttackDefs = require(ReplicatedStorage.Shared.Combat.AttackDefs)
+local CombatDefs = require(ReplicatedStorage.Shared.Combat.CombatDefs)
 local Config = require(ReplicatedStorage.Shared.Config)
 local Types = require(ReplicatedStorage.Shared.Types)
-local WeaponDefs = require(ReplicatedStorage.Shared.WeaponDefs)
-local StateService = require(script.Parent.Services.StateService)
+local WeaponDefs = require(ReplicatedStorage.Shared.Combat.WeaponDefs)
+local StateService = require(script.Parent.Parent.Services.StateService)
 
 -- the server owns NPCs, so it plays their swings and reactions the way a player's client plays its own
 type Npc = {
@@ -60,7 +60,7 @@ end
 
 local function stop(t: AnimationTrack?)
 	if t then
-		t:Stop(Config.ANIM_FADE)
+		t:Stop(Config.COMBAT_FADE)
 	end
 end
 
@@ -84,7 +84,7 @@ local function onState(char: Model)
 	stop(npc.looping)
 	npc.looping = loop
 	if loop then
-		loop:Play(Config.ANIM_FADE)
+		loop:Play(Config.COMBAT_FADE)
 	end
 end
 
@@ -125,7 +125,7 @@ function NpcAnimator.swing(char: Model, id: Types.AttackId)
 	npc.swinging = t
 	npc.swingSpeed = def.speed
 	if t then
-		t:Play(Config.ANIM_FADE, 1, def.speed)
+		t:Play(Config.COMBAT_FADE, 1, def.speed)
 	end
 end
 
@@ -151,7 +151,7 @@ function NpcAnimator.react(char: Model, name: Types.Reaction)
 	if t then
 		stop(npc.oneShot)
 		npc.oneShot = t
-		t:Play(Config.ANIM_FADE)
+		t:Play(Config.COMBAT_FADE)
 	end
 end
 

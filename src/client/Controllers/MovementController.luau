@@ -6,7 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage.Shared.Config)
-local MoveDefs = require(ReplicatedStorage.Shared.MoveDefs)
+local MoveDefs = require(ReplicatedStorage.Shared.Movement.MoveDefs)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local Types = require(ReplicatedStorage.Shared.Types)
 local AnimationController = require(script.Parent.AnimationController)
@@ -180,6 +180,7 @@ local function step(c: Ctx, dt: number)
 	if nextState then
 		MovementController.request(nextState)
 	end
+	AnimationController.step(c)
 	Lean.update(c, dt)
 	InputController.flush()
 end

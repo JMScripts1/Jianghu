@@ -4,7 +4,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.Config)
-local Probes = require(ReplicatedStorage.Shared.Probes)
+local Probes = require(ReplicatedStorage.Shared.Movement.Probes)
 local Types = require(ReplicatedStorage.Shared.Types)
 local Context = require(script.Parent.Parent.Context)
 local InputController = require(script.Parent.Parent.Parent.InputController)

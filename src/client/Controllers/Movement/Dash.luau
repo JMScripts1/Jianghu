@@ -4,7 +4,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.Config)
-local MoveDefs = require(ReplicatedStorage.Shared.MoveDefs)
+local MoveDefs = require(ReplicatedStorage.Shared.Movement.MoveDefs)
 local Types = require(ReplicatedStorage.Shared.Types)
 local Context = require(script.Parent.Context)
 local Ground = require(script.Parent.States.Ground)

@@ -2,9 +2,9 @@
 -- Jianghu by Ruha.luau (github.com/JMScripts1)
 -- MIT licensed, see LICENSE. Feel free to remove this header.
 local AttackDefs = require(script.Parent.AttackDefs)
-local Config = require(script.Parent.Config)
-local MoveDefs = require(script.Parent.MoveDefs)
-local Types = require(script.Parent.Types)
+local Config = require(script.Parent.Parent.Config)
+local MoveDefs = require(script.Parent.Parent.Movement.MoveDefs)
+local Types = require(script.Parent.Parent.Types)
 local WeaponDefs = require(script.Parent.WeaponDefs)
 
 type Target = Types.MoveState | "Dash"
@@ -37,7 +37,8 @@ local SLOWED: { Target } = { "Idle", "Walk", "Fall" }
 local GUARDED: { Target } = { "Idle", "Walk", "Fall", "Dash" }
 
 local rows: { [Types.CombatState]: Row } = {
-	Idle = { actions = { "Light", "Heavy" } },
+	-- a grip is only started standing free, see CombatService
+	Idle = { actions = { "Light", "Heavy", "Grip" } },
 	-- a light is only taken near the end of the swing
 	Attacking = { actions = { "Light" }, moves = SLOWED },
 	Parrying = { actions = {}, moves = GUARDED },
@@ -47,6 +48,9 @@ local rows: { [Types.CombatState]: Row } = {
 	PostureBroken = { actions = {}, moves = SLOWED },
 	-- standing still is allowed, the walk speed of 0 is what keeps it down
 	Downed = { actions = {}, moves = SLOWED },
+	-- both bodies are anchored for the length of it. Grip again lets go
+	Gripping = { actions = { "Grip" }, moves = SLOWED },
+	Gripped = { actions = {}, moves = SLOWED },
 }
 
 local GROUND: { Target } = { "Idle", "Walk", "Run" }
@@ -57,6 +61,7 @@ local AIR: { Target } = { "Jump", "DoubleJump", "SlideJump", "LedgeLeap", "Fall"
 local FROM: { [Types.CombatAction]: { { Target } } } = {
 	Light = { GROUND, AIR },
 	Heavy = { GROUND },
+	Grip = { GROUND },
 }
 
 -- where a held block works and a block press opens a parry window. held anywhere else, it waits
@@ -107,7 +112,7 @@ for state: Types.CombatState, row in rows do
 	table.freeze(def)
 end
 
-local ACTIONS: { Types.CombatAction } = { "Light", "Heavy", "Release", "Block", "Unblock" }
+local ACTIONS: { Types.CombatAction } = { "Light", "Heavy", "Release", "Block", "Unblock", "Grip" }
 
 -- Release, Unblock and Block are taken anywhere, a block press only sets the held flag
 local from: { [Types.CombatAction]: { [Types.MoveState]: true } } = {}

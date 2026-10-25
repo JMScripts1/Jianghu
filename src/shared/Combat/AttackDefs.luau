@@ -2,7 +2,7 @@
 -- Jianghu by Ruha.luau (github.com/JMScripts1)
 -- MIT licensed, see LICENSE. Feel free to remove this header.
 local Movesets = require(script.Parent.Movesets)
-local Types = require(script.Parent.Types)
+local Types = require(script.Parent.Parent.Types)
 local WeaponDefs = require(script.Parent.WeaponDefs)
 
 -- the starting numbers every moveset tunes from. a light with an empty anim swings with nothing to see, a heavy,
@@ -92,8 +92,9 @@ local AIR: Types.AttackDef = {
 local function build(kind: Types.AttackDef, spec: Types.AttackSpec, weapon: Types.WeaponDef): Types.AttackDef
 	local delayAt = spec.delayAt or kind.delayAt
 	local box = spec.box or kind.box
+	local knockback = spec.knockback or kind.knockback
 	return {
-		anim = spec.anim,
+		anim = spec.anim or "",
 		speed = weapon.speed,
 		windup = (spec.windup or kind.windup) / weapon.speed,
 		delayAt = if delayAt then delayAt / weapon.speed else nil,
@@ -106,7 +107,8 @@ local function build(kind: Types.AttackDef, spec: Types.AttackSpec, weapon: Type
 		-- reach is depth only, a longer weapon doesn't swing any wider
 		box = Vector3.new(box.X, box.Y, box.Z * weapon.reach),
 		lunge = spec.lunge or kind.lunge,
-		knockback = spec.knockback or kind.knockback,
+		-- 0 takes away a knockback the kind has
+		knockback = if knockback and knockback > 0 then knockback else nil,
 		canParry = if spec.canParry ~= nil then spec.canParry else kind.canParry,
 		canBlock = if spec.canBlock ~= nil then spec.canBlock else kind.canBlock,
 		canDodge = if spec.canDodge ~= nil then spec.canDodge else kind.canDodge,
@@ -115,16 +117,40 @@ local function build(kind: Types.AttackDef, spec: Types.AttackSpec, weapon: Type
 	}
 end
 
--- every weapon gets its own copy of its moveset's attacks, under the ids WeaponDefs made for it
 local AttackDefs: { [Types.AttackId]: Types.AttackDef } = {}
+
+-- a follow goes in under its first strike's id and its number, like dagger_heavy_2, plays in that strike's animation,
+-- and can't be delayed
+local function add(
+	base: Types.AttackId,
+	n: number,
+	kind: Types.AttackDef,
+	spec: Types.AttackSpec,
+	weapon: Types.WeaponDef,
+	anim: string?
+)
+	local def = build(kind, spec, weapon)
+	if anim then
+		def.anim = anim
+		def.delayAt = nil
+	end
+	AttackDefs[if n == 1 then base else `{base}_{n}`] = def
+	local follow = spec.follow
+	if follow then
+		def.follow = `{base}_{n + 1}`
+		add(base, n + 1, kind, follow, weapon, def.anim)
+	end
+end
+
+-- every weapon gets its own copy of its moveset's attacks, under the ids WeaponDefs made for it
 for _, weapon in WeaponDefs do
 	local moveset = Movesets[weapon.moveset]
 	for i, id in weapon.light do
-		AttackDefs[id] = build(LIGHT, moveset.light[i], weapon)
+		add(id, 1, LIGHT, moveset.light[i], weapon)
 	end
-	AttackDefs[weapon.heavy] = build(HEAVY, moveset.heavy, weapon)
-	AttackDefs[weapon.run] = build(RUN, moveset.run, weapon)
-	AttackDefs[weapon.air] = build(AIR, moveset.air, weapon)
+	add(weapon.heavy, 1, HEAVY, moveset.heavy, weapon)
+	add(weapon.run, 1, RUN, moveset.run, weapon)
+	add(weapon.air, 1, AIR, moveset.air, weapon)
 end
 
 for id, def in AttackDefs do

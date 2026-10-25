@@ -1,7 +1,7 @@
 --!strict
 -- Jianghu by Ruha.luau (github.com/JMScripts1)
 -- MIT licensed, see LICENSE. Feel free to remove this header.
-local Types = require(script.Parent.Parent.Types)
+local Types = require(script.Parent.Parent.Parent.Types)
 
 -- the light anims are 44 frames at 60 fps and the punch lands on frame 28. the server starts the swing half a ping
 -- late, so the box checks from a few frames before that through just after. the three add up to the whole anim
@@ -66,11 +66,17 @@ local Fist: Types.Moveset = {
 		knockback = 70,
 		damage = 20,
 	},
+	-- the victim lies in the generic GripPose in front, facing the gripper. the kill lands killAt seconds in
+	grip = {
+		anim = "rbxassetid://94398703522966",
+		offset = CFrame.new(0, 0, -3) * CFrame.Angles(0, math.pi, 0),
+		killAt = 130 / 60,
+	},
 	run = { anim = "" },
 	air = { anim = "" },
 	reactions = {
-		Parrying = "",
-		Blocking = "",
+		Parrying = "rbxassetid://111421663323177",
+		Blocking = "rbxassetid://120953089487237",
 		Parry = "rbxassetid://87080884226868",
 		Deflected = "rbxassetid://129447946886861",
 		BlockHit = "rbxassetid://136221159215388",

@@ -2,7 +2,7 @@
 -- Jianghu by Ruha.luau (github.com/JMScripts1)
 -- MIT licensed, see LICENSE. Feel free to remove this header.
 local MoveDefs = require(script.Parent.MoveDefs)
-local Types = require(script.Parent.Types)
+local Types = require(script.Parent.Parent.Types)
 
 local SLOTS: { [string]: true } = {
 	WallRunLeft = true,
@@ -17,6 +17,7 @@ local SLOTS: { [string]: true } = {
 	AirDash = true,
 	DashCancelLeft = true,
 	DashCancelRight = true,
+	Sprint = true,
 }
 for state in MoveDefs do
 	SLOTS[state] = true
@@ -26,6 +27,8 @@ local Anims: { [Types.AnimName]: string } = {
 	Idle = "rbxassetid://135449190200569",
 	Walk = "rbxassetid://87539854939325",
 	Run = "rbxassetid://97365671049008",
+	-- the run past SPRINT_ANIM_ENTER of momentum, see AnimationController
+	Sprint = "rbxassetid://85749181532001",
 	Jump = "rbxassetid://91804113405885",
 	Slide = "rbxassetid://131338188389559",
 	SlideJump = "rbxassetid://87854361282454",

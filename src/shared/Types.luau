@@ -41,6 +41,7 @@ export type AnimName =
 	| "AirDash"
 	| "DashCancelLeft"
 	| "DashCancelRight"
+	| "Sprint"
 
 -- states play the slot named after them, the four dashes share Dash and any landing plays Land
 export type SoundName = MoveState | "Dash" | "Land"
@@ -77,23 +78,51 @@ export type LedgeHit = {
 }
 
 -- worked out from end times when read, never stored, see StateService.combatState
-export type CombatState = "Idle" | "Attacking" | "Parrying" | "Blocking" | "Stunned" | "PostureBroken" | "Downed"
+export type CombatState =
+	"Idle"
+	| "Attacking"
+	| "Parrying"
+	| "Blocking"
+	| "Stunned"
+	| "PostureBroken"
+	| "Downed"
+	| "Gripping"
+	-- a downed body in someone's grip
+	| "Gripped"
 
 -- what a character plays from its own weapon: a loop while it's in a combat state, or a one shot when a hit it took
 -- part in resolves, see CombatDefs.reaction
-export type Reaction = CombatState | "Parry" | "Deflected" | "BlockHit" | "Hurt" | "Knockback"
+-- GripPose is the pose a downed body is held in during a grip, unless the gripper's weapon has its own
+export type Reaction = CombatState | "Parry" | "Deflected" | "BlockHit" | "Hurt" | "Knockback" | "GripPose"
 
 -- one animation, or several that take turns
 export type ReactionAnims = string | { string }
 
-export type CombatAction = "Light" | "Heavy" | "Release" | "Block" | "Unblock"
+export type CombatAction = "Light" | "Heavy" | "Release" | "Block" | "Unblock" | "Grip"
+
+-- a paired animation on a downed body. both halves start on the same server frame, and the victim's root is held at
+-- offset from the gripper's, the way the two rigs stood when it was animated. the kill lands killAt seconds in
+export type GripSpec = {
+	anim: string,
+	-- the victim's half, the GripPose in CombatAnims when left out
+	victim: string?,
+	offset: CFrame,
+	killAt: number,
+}
+
+export type Grip = {
+	anim: string,
+	victim: string,
+	offset: CFrame,
+	killAt: number,
+}
 
 export type CombatCooldown = "Parry" | "Heavy" | "Delay" | "Run"
 
-export type WeaponId = "fist"
+export type WeaponId = "fist" | "dagger"
 
 -- one per weapon type, see Movesets
-export type MovesetId = "fist"
+export type MovesetId = "fist" | "dagger"
 
 -- made by WeaponDefs from the weapon and the slot, like fist_light_3, so none is ever typed by hand
 export type AttackId = string
@@ -136,11 +165,14 @@ export type AttackDef = {
 	isGuardBreak: boolean,
 	-- can't be parried out of
 	isHeavyStun: boolean,
+	-- the strike that starts when this one ends, in the same animation, see AttackSpec.follow
+	follow: AttackId?,
 }
 
 -- what an attack in a moveset states for itself, anything it leaves out comes from its kind
 export type AttackSpec = {
-	anim: string,
+	-- a follow plays on in its first strike's animation and leaves this out
+	anim: string?,
 	windup: number?,
 	delayAt: number?,
 	active: number?,
@@ -157,6 +189,9 @@ export type AttackSpec = {
 	canDodge: boolean?,
 	isGuardBreak: boolean?,
 	isHeavyStun: boolean?,
+	-- another strike in the same animation, starting the moment this one's recovery ends, with its own hit and its own
+	-- parry or block. it can't be delayed, it carries the first strike's delay instead
+	follow: AttackSpec?,
 }
 
 -- every weapon of a type swings the same moveset. an attack's kind is the slot it sits in
@@ -167,6 +202,11 @@ export type Moveset = {
 	air: AttackSpec,
 	-- this weapon type's own reactions, anything empty or left out plays the one in CombatAnims
 	reactions: { [Reaction]: ReactionAnims }?,
+	-- a weapon type without one can't grip
+	grip: GripSpec?,
+	-- state animations played instead of the shared ones in Anims while it's held, like its own Idle and Walk. an empty
+	-- one keeps the shared one, and a dash, its cancel or the roll always plays the shared one
+	movement: { [AnimName]: string }?,
 }
 
 -- damage multiplies every hit, speed runs the whole swing and its animation faster, reach makes the box longer.
@@ -176,12 +216,17 @@ export type WeaponDef = {
 	damage: number,
 	speed: number,
 	reach: number,
+	-- its model in ServerStorage.Weapons, nil is held in the bare hand
+	model: string?,
 	light: { AttackId },
 	heavy: AttackId,
 	run: AttackId,
 	air: AttackId,
 	-- every slot as a list, empty when it has no animation
 	reactions: { [Reaction]: { string } },
+	grip: Grip?,
+	-- only the ones it has its own of, see Moveset.movement
+	movement: { [AnimName]: string },
 }
 
 export type CombatDef = {

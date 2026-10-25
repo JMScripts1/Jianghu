@@ -1,8 +1,8 @@
 --!strict
 -- Jianghu by Ruha.luau (github.com/JMScripts1)
 -- MIT licensed, see LICENSE. Feel free to remove this header.
-local Config = require(script.Parent.Config)
-local Types = require(script.Parent.Types)
+local Config = require(script.Parent.Parent.Config)
+local Types = require(script.Parent.Parent.Types)
 
 local Probes = {}
 

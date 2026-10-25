@@ -3,7 +3,7 @@
 -- MIT licensed, see LICENSE. Feel free to remove this header.
 
 return table.freeze({
-	DEBUG = false,
+	DEBUG = true,
 
 	WALK_SPEED = 14,
 	CROUCH_SPEED = 7,
@@ -135,8 +135,15 @@ return table.freeze({
 	-- footsteps fade out to nothing by this distance
 	FOOTSTEP_RANGE = 80,
 	ANIM_FADE = 0.1,
+	-- attacks and guard poses sit far apart, and a longer blend swings the arm through the body between them
+	COMBAT_FADE = 0.03,
 	-- run animation speed through a running jump, back to 1 on landing
 	RUN_JUMP_ANIM_SPEED = 0.3,
+	-- the run plays the sprint from ENTER momentum until it falls back under EXIT, two lines so it never flickers
+	-- on one, and blends over the longer fade so it reads as picking up speed
+	SPRINT_ANIM_ENTER = 32,
+	SPRINT_ANIM_EXIT = 28,
+	SPRINT_ANIM_FADE = 0.25,
 
 	KEYS = table.freeze({
 		SPRINT = Enum.KeyCode.W,
@@ -147,6 +154,8 @@ return table.freeze({
 		LIGHT = Enum.UserInputType.MouseButton1,
 		HEAVY = Enum.KeyCode.R,
 		BLOCK = Enum.KeyCode.F,
+		GRIP = Enum.KeyCode.B,
+		ADMIN_MENU = Enum.KeyCode.F2,
 	}),
 	-- most seconds between the two taps of the sprint key
 	DOUBLE_TAP = 0.3,
@@ -230,6 +239,8 @@ return table.freeze({
 	DOWNED_HEALTH = 0.2,
 	-- the angular impulse that tips a ragdoll over backwards, a body balanced on its feet would stay standing
 	RAGDOLL_TIP = 90,
+	-- studs from the gripper's root to the downed root it picks up
+	GRIP_RANGE = 5,
 
 	-- every press has a release that counts too, a dropped Unblock would leave the block held
 	COMBAT_BURST = 16,
@@ -237,6 +248,13 @@ return table.freeze({
 	COMBAT_TOLERANCE = 0.15,
 	FX_RANGE = 200,
 	DUMMY_INTERVAL = 1.5,
+	-- a dummy killed by a grip comes back fresh after this
+	DUMMY_RESPAWN = 3,
 	-- a dummy only turns to and swings at a player this close
 	DUMMY_RANGE = 30,
+
+	-- user ids that get the admin menu on a live server, everyone gets it in Studio
+	ADMINS = table.freeze({} :: { number }),
+	EQUIP_BURST = 4,
+	EQUIP_REFILL = 2,
 })

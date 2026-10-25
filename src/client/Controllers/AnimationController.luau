@@ -3,10 +3,11 @@
 -- MIT licensed, see LICENSE. Feel free to remove this header.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Anims = require(ReplicatedStorage.Shared.Anims)
+local Anims = require(ReplicatedStorage.Shared.Movement.Anims)
 local Config = require(ReplicatedStorage.Shared.Config)
-local MoveDefs = require(ReplicatedStorage.Shared.MoveDefs)
+local MoveDefs = require(ReplicatedStorage.Shared.Movement.MoveDefs)
 local Types = require(ReplicatedStorage.Shared.Types)
+local WeaponDefs = require(ReplicatedStorage.Shared.Combat.WeaponDefs)
 local Context = require(script.Parent.Movement.Context)
 local Dash = require(script.Parent.Movement.Dash)
 
@@ -15,6 +16,7 @@ type Ctx = Context.Ctx
 local BOOST_MARKER = "Boost"
 local BACK_DASH: Types.AnimName = "DashB"
 local RUN: Types.AnimName = "Run"
+local SPRINT: Types.AnimName = "Sprint"
 local ROLL: Types.AnimName = "Roll"
 -- the leap takes these in turn, and lasts as long as whichever one plays
 local LEAPS: { Types.AnimName } = { "LedgeLeap", "LedgeLeap2", "LedgeLeap3", "LedgeLeap4" }
@@ -29,20 +31,46 @@ local THEN_FALL: { [Types.AnimName]: true } = {
 	WallBoost = true,
 }
 
+-- turns the attribute back into a weapon, anything else is ignored
+local BY_WEAPON: { [string]: Types.WeaponId } = {}
+for weapon: Types.WeaponId in WeaponDefs do
+	BY_WEAPON[weapon] = weapon
+end
+
 local AnimationController = {}
 
 local animations: { [Types.AnimName]: Animation } = {}
 local tracks: { [Types.AnimName]: AnimationTrack } = {}
+-- each weapon's own movement animations, and the held weapon's, which play over the shared ones of the same name
+local weaponAnimations: { [Types.WeaponId]: { [Types.AnimName]: Animation } } = {}
+local weaponTracks: { [Types.WeaponId]: { [Types.AnimName]: AnimationTrack } } = {}
+local overrides: { [Types.AnimName]: AnimationTrack } = {}
 local current: AnimationTrack? = nil
+-- what current was started for, so a weapon swap can start it again from the new weapon's own
+local currentName: Types.AnimName? = nil
 local dashing: AnimationTrack? = nil
 -- plays over the state track instead of taking over from it, the walk states keep going underneath
 local rolling: AnimationTrack? = nil
 local leaps = 0
+local isSprinting = false
 
 for name: Types.AnimName, id in Anims do
 	local anim = Instance.new("Animation")
 	anim.AnimationId = id
 	animations[name] = anim
+end
+for weapon: Types.WeaponId, def in WeaponDefs do
+	local own: { [Types.AnimName]: Animation } = {}
+	for name: Types.AnimName, id in def.movement do
+		local anim = Instance.new("Animation")
+		anim.AnimationId = id
+		own[name] = anim
+	end
+	weaponAnimations[weapon] = own
+end
+
+local function trackOf(name: Types.AnimName): AnimationTrack
+	return overrides[name] or tracks[name]
 end
 
 -- the air dash is DashF in the air with its own animation, and a cancel plays the way a dash does
@@ -55,7 +83,7 @@ end
 
 local function isThenFall(track: AnimationTrack): boolean
 	for name: Types.AnimName in THEN_FALL do
-		if tracks[name] == track then
+		if trackOf(name) == track then
 			return true
 		end
 	end
@@ -63,27 +91,38 @@ local function isThenFall(track: AnimationTrack): boolean
 end
 
 -- while a dash plays the state track is only remembered, it starts when the dash ends
-local function start(name: Types.AnimName)
-	local track = tracks[name]
+local function start(name: Types.AnimName, fade: number?)
+	local track = trackOf(name)
+	local time = fade or Config.ANIM_FADE
+	local playing = current
 	-- the leap and boost can outlast their state, and they hand over to the fall loop themselves when they end
-	if name == "Fall" and current and current.IsPlaying and isThenFall(current) then
+	if name == "Fall" and playing and playing.IsPlaying and isThenFall(playing) then
 		return
 	end
-	-- a running jump keeps the run going slowed down instead of cutting to the jump, landing in Run speeds it back up
-	if current and current == tracks[RUN] and (name == "Jump" or name == "Run") then
-		current:AdjustSpeed(if name == "Jump" then Config.RUN_JUMP_ANIM_SPEED else 1)
+	-- a running jump keeps the run or sprint going slowed down instead of cutting to the jump, landing back in the
+	-- same one speeds it back up
+	local isRunning = playing == trackOf(RUN) or playing == trackOf(SPRINT)
+	if playing and isRunning and (name == "Jump" or track == playing) then
+		playing:AdjustSpeed(if name == "Jump" then Config.RUN_JUMP_ANIM_SPEED else 1)
 		return
 	end
-	if track == current then
+	if track == playing then
 		return
 	end
-	if current then
-		current:Stop(Config.ANIM_FADE)
+	if playing then
+		playing:Stop(time)
 	end
 	current = track
+	currentName = name
 	if track and not dashing then
-		track:Play(Config.ANIM_FADE)
+		track:Play(time)
 	end
+end
+
+-- two lines, so momentum falling slowly through one doesn't flick between the two
+local function runName(c: Ctx): Types.AnimName
+	isSprinting = c.momentum >= if isSprinting then Config.SPRINT_ANIM_EXIT else Config.SPRINT_ANIM_ENTER
+	return if isSprinting then SPRINT else RUN
 end
 
 local function stopRoll()
@@ -95,9 +134,8 @@ end
 
 function AnimationController.load(c: Ctx)
 	local animator = c.hum:WaitForChild("Animator") :: Animator
-	for name: Types.AnimName, anim in animations do
+	local function loadTrack(name: Types.AnimName, anim: Animation): AnimationTrack
 		local track = animator:LoadAnimation(anim)
-		tracks[name] = track
 		if THEN_FALL[name] then
 			c.trove:Connect(track.Stopped, function()
 				if current == track then
@@ -105,7 +143,30 @@ function AnimationController.load(c: Ctx)
 				end
 			end)
 		end
+		return track
 	end
+	for name: Types.AnimName, anim in animations do
+		tracks[name] = loadTrack(name, anim)
+	end
+	for weapon: Types.WeaponId, own in weaponAnimations do
+		local loaded: { [Types.AnimName]: AnimationTrack } = {}
+		for name: Types.AnimName, anim in own do
+			loaded[name] = loadTrack(name, anim)
+		end
+		weaponTracks[weapon] = loaded
+	end
+
+	-- a swap starts the state's animation again from the new weapon's own, or the shared one
+	local function onWeapon()
+		local value = c.char:GetAttribute("Weapon")
+		local weapon: Types.WeaponId? = if typeof(value) == "string" then BY_WEAPON[value] else nil
+		overrides = if weapon then weaponTracks[weapon] else {}
+		if currentName then
+			start(currentName)
+		end
+	end
+	c.trove:Connect(c.char:GetAttributeChangedSignal("Weapon"), onWeapon)
+	onWeapon()
 
 	for _, name: Types.AnimName in DASH_ANIMS do
 		local track = tracks[name]
@@ -129,9 +190,13 @@ function AnimationController.load(c: Ctx)
 
 	c.trove:Add(function()
 		table.clear(tracks)
+		table.clear(weaponTracks)
+		overrides = {}
 		current = nil
+		currentName = nil
 		dashing = nil
 		rolling = nil
+		isSprinting = false
 	end)
 end
 
@@ -167,6 +232,8 @@ function AnimationController.play(c: Ctx): number
 	elseif c.state == "LedgeLeap" then
 		leaps = leaps % #LEAPS + 1
 		start(LEAPS[leaps])
+	elseif c.state == "Run" then
+		start(runName(c))
 	else
 		start(c.state)
 	end
@@ -182,6 +249,17 @@ function AnimationController.play(c: Ctx): number
 
 	local playing = if MoveDefs[c.state].isDash then dashing else current
 	return if playing then playing.Length else 0
+end
+
+-- momentum moves all through a run without the state changing, so the run or sprint is picked again every step
+function AnimationController.step(c: Ctx)
+	if c.state ~= "Run" then
+		return
+	end
+	local name: Types.AnimName = runName(c)
+	if name ~= currentName then
+		start(name, Config.SPRINT_ANIM_FADE)
+	end
 end
 
 -- a dash animation plays out after its dash, so a swing that starts in its tail cuts it instead of blending in.

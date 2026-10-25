@@ -1,20 +1,27 @@
 --!strict
 -- Jianghu by Ruha.luau (github.com/JMScripts1)
 -- MIT licensed, see LICENSE. Feel free to remove this header.
+local Anims = require(script.Parent.Parent.Movement.Anims)
 local CombatAnims = require(script.Parent.CombatAnims)
 local Movesets = require(script.Parent.Movesets)
-local Types = require(script.Parent.Types)
+local Types = require(script.Parent.Parent.Types)
 
 type Row = {
 	moveset: Types.MovesetId,
 	damage: number,
 	speed: number,
 	reach: number,
+	model: string?,
 }
+
+-- typed so the old solver takes it as a key of the reactions
+local GRIP_POSE: Types.Reaction = "GripPose"
 
 -- a weapon of a type that already has a moveset is one row here
 local rows: { [Types.WeaponId]: Row } = {
 	fist = { moveset = "fist", damage = 1, speed = 1.15, reach = 1 },
+	-- quicker and weaker than the fist, and it has to get closer
+	dagger = { moveset = "dagger", damage = 0.8, speed = 1.3, reach = 0.8, model = "Dagger" },
 }
 
 local WeaponDefs: { [Types.WeaponId]: Types.WeaponDef } = {}
@@ -61,21 +68,51 @@ for weapon: Types.WeaponId, row in rows do
 		end
 	end
 
+	-- the victim lies in the generic pose unless the moveset has its own half
+	local spec = moveset.grip
+	local grip: Types.Grip? = if spec
+		then {
+			anim = spec.anim,
+			victim = spec.victim or reactions[GRIP_POSE][1] or "",
+			offset = spec.offset,
+			killAt = spec.killAt,
+		}
+		else nil
+	if grip then
+		table.freeze(grip)
+	end
+
+	-- only a slot that has a shared animation can be swapped, so a typo fails here instead of never playing
+	local movement: { [Types.AnimName]: string } = {}
+	local ownMoves = moveset.movement
+	if ownMoves then
+		for name: Types.AnimName, id in ownMoves do
+			assert(Anims[name], `{row.moveset} has its own {name}, which isn't a movement animation`)
+			if id ~= "" then
+				movement[name] = id
+			end
+		end
+	end
+
 	-- frozen in place, the new solver's read only freeze type doesn't fit WeaponDef
 	local def: Types.WeaponDef = {
 		moveset = row.moveset,
 		damage = row.damage,
 		speed = row.speed,
 		reach = row.reach,
+		model = row.model,
 		light = light,
 		heavy = `{weapon}_heavy`,
 		run = `{weapon}_run`,
 		air = `{weapon}_air`,
 		reactions = reactions,
+		grip = grip,
+		movement = movement,
 	}
 	WeaponDefs[weapon] = def
 	table.freeze(light)
 	table.freeze(reactions)
+	table.freeze(movement)
 	table.freeze(def)
 end
 

@@ -8,7 +8,7 @@ local UserInputService = game:GetService("UserInputService")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Types = require(ReplicatedStorage.Shared.Types)
 
-export type Action = "Sprint" | "Crouch" | "Jump" | "Dash" | "DashCancel" | "Light" | "Heavy" | "Block"
+export type Action = "Sprint" | "Crouch" | "Jump" | "Dash" | "DashCancel" | "Light" | "Heavy" | "Block" | "Grip"
 
 local SPRINT: Action = "Sprint"
 local CROUCH: Action = "Crouch"
@@ -25,6 +25,7 @@ local BINDS: { [Action]: Enum.KeyCode | Enum.UserInputType } = {
 	Light = Config.KEYS.LIGHT,
 	Heavy = Config.KEYS.HEAVY,
 	Block = Config.KEYS.BLOCK,
+	Grip = Config.KEYS.GRIP,
 }
 
 -- first held key wins, so W and D together is a forward dash

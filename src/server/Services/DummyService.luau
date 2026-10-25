@@ -5,10 +5,12 @@ local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local AttackDefs = require(ReplicatedStorage.Shared.AttackDefs)
+local AttackDefs = require(ReplicatedStorage.Shared.Combat.AttackDefs)
 local Config = require(ReplicatedStorage.Shared.Config)
-local Hitbox = require(script.Parent.Parent.Hitbox)
-local NpcAnimator = require(script.Parent.Parent.NpcAnimator)
+local Types = require(ReplicatedStorage.Shared.Types)
+local WeaponDefs = require(ReplicatedStorage.Shared.Combat.WeaponDefs)
+local Hitbox = require(script.Parent.Parent.Combat.Hitbox)
+local NpcAnimator = require(script.Parent.Parent.Combat.NpcAnimator)
 local CharacterService = require(script.Parent.CharacterService)
 local CombatService = require(script.Parent.CombatService)
 local StateService = require(script.Parent.StateService)
@@ -40,6 +42,11 @@ local MODES: { [string]: Mode } = {
 	Heavy = "Heavy",
 }
 
+local WEAPONS: { [string]: Types.WeaponId } = {}
+for weapon: Types.WeaponId in WeaponDefs do
+	WEAPONS[weapon] = weapon
+end
+
 local DummyService = {}
 
 local dummies: { [Model]: Dummy } = {}
@@ -50,10 +57,21 @@ local function mode(model: Model): Mode
 	return if typeof(value) == "string" and MODES[value] then MODES[value] else "Idle"
 end
 
-local function checkMode(model: Model)
+-- the same attribute CombatService publishes the weapon on, so setting it in Studio asks for a swap. nil when it
+-- names nothing
+local function weaponOf(model: Model): Types.WeaponId?
+	local value = model:GetAttribute("Weapon")
+	return if typeof(value) == "string" then WEAPONS[value] else nil
+end
+
+local function check(model: Model)
 	local value = model:GetAttribute("Mode")
 	if value ~= nil and not (typeof(value) == "string" and MODES[value]) then
 		warn("no dummy mode called", value, model:GetFullName())
+	end
+	local weapon = model:GetAttribute("Weapon")
+	if weapon ~= nil and not weaponOf(model) then
+		warn("no weapon called", weapon, model:GetFullName())
 	end
 end
 
@@ -139,6 +157,11 @@ local function step(model: Model, d: Dummy, now: number)
 	if m ~= "Block" and combat.isBlockHeld then
 		CombatService.act(model, "Unblock")
 	end
+	-- refused mid swing or stunned, so it's asked again every tick until it goes through
+	local weapon: Types.WeaponId? = weaponOf(model)
+	if weapon and weapon ~= combat.weapon then
+		CombatService.equip(model, weapon)
+	end
 	local releaseAt = d.releaseAt
 	if releaseAt and now >= releaseAt then
 		d.releaseAt = nil
@@ -190,11 +213,32 @@ local function add(inst: Instance)
 		root:SetNetworkOwner(nil)
 	end
 
+	-- a grip kills it, so it comes back fresh where it stood, from a copy taken before anything was added to it
+	local fresh = inst:Clone()
+	local home = inst.Parent
+	hum.Died:Connect(function()
+		task.delay(Config.DUMMY_RESPAWN, function()
+			-- the mode and weapon it was switched to in Studio, not the ones it started with
+			fresh:SetAttribute("Mode", inst:GetAttribute("Mode"))
+			fresh:SetAttribute("Weapon", inst:GetAttribute("Weapon"))
+			inst:Destroy()
+			fresh.Parent = home
+		end)
+	end)
+
+	-- setting up publishes the default weapon over the one it was placed with, so that one is asked for again after
+	local placed = inst:GetAttribute("Weapon")
 	CharacterService.add(inst)
 	NpcAnimator.add(inst, hum)
-	checkMode(inst)
+	if placed ~= nil then
+		inst:SetAttribute("Weapon", placed)
+	end
+	check(inst)
 	inst:GetAttributeChangedSignal("Mode"):Connect(function()
-		checkMode(inst)
+		check(inst)
+	end)
+	inst:GetAttributeChangedSignal("Weapon"):Connect(function()
+		check(inst)
 	end)
 
 	dummies[inst] = {
