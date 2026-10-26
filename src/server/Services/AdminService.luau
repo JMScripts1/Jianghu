@@ -4,19 +4,14 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
+local CombatDefs = require(ReplicatedStorage.Shared.Combat.CombatDefs)
 local Config = require(ReplicatedStorage.Shared.Config)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local Types = require(ReplicatedStorage.Shared.Types)
-local WeaponDefs = require(ReplicatedStorage.Shared.Combat.WeaponDefs)
 local RateLimit = require(script.Parent.Parent.RateLimit)
 local CombatService = require(script.Parent.CombatService)
 
 local MAX_WEAPON_LEN = 16
-
-local WEAPONS: { [string]: Types.WeaponId } = {}
-for weapon: Types.WeaponId in WeaponDefs do
-	WEAPONS[weapon] = weapon
-end
 
 local AdminService = {}
 
@@ -33,7 +28,7 @@ local function onEquip(plr: Player, weapon: unknown)
 		return
 	end
 
-	local id: Types.WeaponId? = WEAPONS[weapon]
+	local id: Types.WeaponId? = CombatDefs.weapon(weapon)
 	local char = plr.Character
 	if id and char and isAdmin(plr) and not CombatService.equip(char, id) and Config.DEBUG then
 		print("equip refused", plr.Name, id, char:GetAttribute("CombatState"))

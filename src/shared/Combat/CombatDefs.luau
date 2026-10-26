@@ -209,12 +209,23 @@ local function isFinisher(weapon: Types.WeaponId, id: Types.AttackId): boolean
 	return light[#light] == id
 end
 
+-- an attribute or a remote's string back to a weapon, nil when it names none
+local WEAPONS: { [string]: Types.WeaponId } = {}
+for id: Types.WeaponId in WeaponDefs do
+	WEAPONS[id] = id
+end
+
+local function weapon(value: unknown): Types.WeaponId?
+	return if typeof(value) == "string" then WEAPONS[value] else nil
+end
+
 return table.freeze({
 	states = table.freeze(states),
 	from = table.freeze(from),
 	guard = guard,
 	cooldowns = table.freeze(COOLDOWNS),
 	defaultWeapon = DEFAULT_WEAPON,
+	weapon = weapon,
 	pick = pick,
 	canParry = canParry,
 	reaction = reaction,

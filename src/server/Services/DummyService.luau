@@ -6,9 +6,9 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local AttackDefs = require(ReplicatedStorage.Shared.Combat.AttackDefs)
+local CombatDefs = require(ReplicatedStorage.Shared.Combat.CombatDefs)
 local Config = require(ReplicatedStorage.Shared.Config)
 local Types = require(ReplicatedStorage.Shared.Types)
-local WeaponDefs = require(ReplicatedStorage.Shared.Combat.WeaponDefs)
 local Hitbox = require(script.Parent.Parent.Combat.Hitbox)
 local NpcAnimator = require(script.Parent.Parent.Combat.NpcAnimator)
 local CharacterService = require(script.Parent.CharacterService)
@@ -42,11 +42,6 @@ local MODES: { [string]: Mode } = {
 	Heavy = "Heavy",
 }
 
-local WEAPONS: { [string]: Types.WeaponId } = {}
-for weapon: Types.WeaponId in WeaponDefs do
-	WEAPONS[weapon] = weapon
-end
-
 local DummyService = {}
 
 local dummies: { [Model]: Dummy } = {}
@@ -60,8 +55,7 @@ end
 -- the same attribute CombatService publishes the weapon on, so setting it in Studio asks for a swap. nil when it
 -- names nothing
 local function weaponOf(model: Model): Types.WeaponId?
-	local value = model:GetAttribute("Weapon")
-	return if typeof(value) == "string" then WEAPONS[value] else nil
+	return CombatDefs.weapon(model:GetAttribute("Weapon"))
 end
 
 local function check(model: Model)

@@ -4,6 +4,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Anims = require(ReplicatedStorage.Shared.Movement.Anims)
+local CombatDefs = require(ReplicatedStorage.Shared.Combat.CombatDefs)
 local Config = require(ReplicatedStorage.Shared.Config)
 local MoveDefs = require(ReplicatedStorage.Shared.Movement.MoveDefs)
 local Types = require(ReplicatedStorage.Shared.Types)
@@ -32,12 +33,6 @@ local THEN_FALL: { [Types.AnimName]: true } = {
 	WallLeapRight = true,
 	WallBoost = true,
 }
-
--- turns the attribute back into a weapon, anything else is ignored
-local BY_WEAPON: { [string]: Types.WeaponId } = {}
-for weapon: Types.WeaponId in WeaponDefs do
-	BY_WEAPON[weapon] = weapon
-end
 
 local AnimationController = {}
 
@@ -162,8 +157,7 @@ function AnimationController.load(c: Ctx)
 
 	-- a swap starts the state's animation again from the new weapon's own, or the shared one
 	local function onWeapon()
-		local value = c.char:GetAttribute("Weapon")
-		local weapon: Types.WeaponId? = if typeof(value) == "string" then BY_WEAPON[value] else nil
+		local weapon: Types.WeaponId? = CombatDefs.weapon(c.char:GetAttribute("Weapon"))
 		overrides = if weapon then weaponTracks[weapon] else {}
 		if currentName then
 			start(currentName)

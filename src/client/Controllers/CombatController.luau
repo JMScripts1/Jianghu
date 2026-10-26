@@ -11,6 +11,7 @@ local MoveDefs = require(ReplicatedStorage.Shared.Movement.MoveDefs)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local Types = require(ReplicatedStorage.Shared.Types)
 local WeaponDefs = require(ReplicatedStorage.Shared.Combat.WeaponDefs)
+local Body = require(script.Parent.Combat.Body)
 local Context = require(script.Parent.Movement.Context)
 local InputController = require(script.Parent.InputController)
 
@@ -36,8 +37,6 @@ type Swing = {
 	kind: Types.AttackKind,
 	track: AnimationTrack?,
 }
-
-type Push = { velocity: Vector3, untilAt: number }
 
 -- typed so the old solver takes them as keys of cooldownUntil
 local PARRY: Types.CombatCooldown = "Parry"
@@ -75,14 +74,10 @@ local SPEED_CAPS: { [Types.CombatState]: number } = {
 	Gripped = 0,
 }
 
--- turn the attributes back into names, anything else is ignored
+-- turns the attribute back into a state, anything else is ignored
 local BY_NAME: { [string]: Types.CombatState } = {}
 for state: Types.CombatState in CombatDefs.states do
 	BY_NAME[state] = state
-end
-local BY_WEAPON: { [string]: Types.WeaponId } = {}
-for weapon: Types.WeaponId in WeaponDefs do
-	BY_WEAPON[weapon] = weapon
 end
 
 local player = Players.LocalPlayer
@@ -110,21 +105,6 @@ local isBlockHeld = false
 local parryUntil = 0
 -- a parry pressed while stunned is still a stun to movement, see StateService.canMove
 local isParryOutOfStun = false
-local isRagdolled = false
--- held still through a grip or a wall pin, see body
-local isAnchored = false
--- a broken guard can't turn, see body
-local isRooted = false
-local push: Push? = nil
--- where the server put this body against a wall, set on the next step
-local pinAt: CFrame? = nil
--- held in the air by a juggle until this. riseUntil lets the hold work off the ground while the uppercut lifts, see Juggle
-local juggleUntil = 0
-local riseUntil = 0
--- a rise the server asked for, taken on the next step where the body's height is known
-local pendingRise: number? = nil
--- the height the juggle settled at, read on its first held step
-local holdY: number? = nil
 -- from CombatFx, played on the next step
 local pending: Types.Reaction? = nil
 -- which of a reaction's animations played last
@@ -186,8 +166,7 @@ end
 
 -- the server's copy is the truth, this only picks which attack to predict
 local function weaponOf(c: Ctx): Types.WeaponId
-	local value = c.char:GetAttribute("Weapon")
-	return if typeof(value) == "string" and BY_WEAPON[value] then BY_WEAPON[value] else CombatDefs.defaultWeapon
+	return CombatDefs.weapon(c.char:GetAttribute("Weapon")) or CombatDefs.defaultWeapon
 end
 
 local function attack(c: Ctx, action: Types.CombatAction, button: InputController.Action, now: number)
@@ -201,7 +180,7 @@ local function attack(c: Ctx, action: Types.CombatAction, button: InputControlle
 		combo,
 		now - comboAt,
 		hasAirAttacked,
-		now < juggleUntil,
+		Body.isJuggled(now),
 		function(name: Types.CombatCooldown): boolean
 			return now >= (cooldownUntil[name] or 0)
 		end
@@ -270,7 +249,7 @@ end
 -- the swing's end is what the next light's combo counts from, and a light pressed near it starts right then
 -- in the air by its move state, or held there by a juggle
 local function isAloft(c: Ctx, now: number): boolean
-	return now < juggleUntil or MoveDefs[c.state].group == "Airborne"
+	return Body.isJuggled(now) or MoveDefs[c.state].group == "Airborne"
 end
 
 local function settle(c: Ctx, now: number)
@@ -361,69 +340,16 @@ local function hold(now: number)
 	end
 end
 
--- the lunge, the air attack's height hold and knockback all drive the root through the movement mover
+-- the swing's own movement, the lunge at the hit and the air attack's height hold. the rest is Body's
 local function move(c: Ctx, now: number)
-	-- the knockback ends at the wall, and the body is set where the server says it hit
-	local pin = pinAt
-	if pin then
-		pinAt = nil
-		push = nil
-		c.lv.Enabled = false
-		c.root.AssemblyLinearVelocity = Vector3.zero
-		c.root.CFrame = pin
-	end
-
 	local current = swing
 	if current and current.lunge > 0 and now >= current.hitAt then
-		push = { velocity = Context.look(c) * current.lunge, untilAt = now + Config.LUNGE_TIME }
+		Body.push(Context.look(c) * current.lunge, Config.LUNGE_TIME)
 		current.lunge = 0
 	end
 	if current and current.kind == "Air" and now < current.hitAt then
 		local v = c.root.AssemblyLinearVelocity
 		c.root.AssemblyLinearVelocity = Vector3.new(v.X, 0, v.Z)
-	end
-
-	-- a push with height, the slam's, drives the fall too
-	local p = push
-	if p and now < p.untilAt then
-		if p.velocity.Y == 0 then
-			Context.glide(c, p.velocity)
-		else
-			Context.drive(c, p.velocity)
-		end
-	elseif p then
-		push = nil
-		-- a dash out of a block owns the mover by now
-		if not MoveDefs[c.state].isDash then
-			c.lv.Enabled = false
-		end
-	end
-
-	-- the uppercut moves the hold up by its rise, then a juggle keeps the body at that height with the hold mover,
-	-- which a lunge into the target can't push past. the rise works from the ground, after it only in Fall or a dash,
-	-- so a dash round the target stays level and a jump or a wall takes over. so does the slam's push
-	local rise = pendingRise
-	if rise then
-		pendingRise = nil
-		holdY = c.root.Position.Y + rise
-		riseUntil = now + Config.LAUNCH_TIME
-	end
-	if now >= juggleUntil then
-		holdY = nil
-	end
-	local isDriven = push ~= nil and (push :: Push).velocity.Y ~= 0
-	local isHolding = now < juggleUntil
-		and (now < riseUntil or c.state == "Fall" or MoveDefs[c.state].isDash)
-		and not isDriven
-	if isHolding and not holdY then
-		holdY = c.root.Position.Y
-	end
-	local y = holdY
-	if isHolding and y then
-		c.hold.Position = Vector3.new(0, y, 0)
-	end
-	if c.hold.Enabled ~= isHolding then
-		c.hold.Enabled = isHolding
 	end
 end
 
@@ -474,32 +400,6 @@ local function respond(c: Ctx)
 	end
 end
 
--- downed is a ragdoll, and a grip holds both bodies still. the server frees the limbs and anchors the roots, but this
--- client owns the character's physics, so the Humanoid state, the push that tips it over and its own copy of the
--- anchor are set here. a body let go of mid grip goes back to Downed and tips over again. a wall pin is held the same
--- way. a broken guard already can't walk, and AutoRotate off stops shift lock turning it with the camera
-local function body(c: Ctx)
-	local server: Types.CombatState = serverState(c)
-	local isDowned = server == "Downed"
-	local isHeld = server == "Gripping" or server == "Gripped" or server == "WallStunned" or server == "FloorStunned"
-	local isBroken = server == "PostureBroken"
-	if isDowned == isRagdolled and isHeld == isAnchored and isBroken == isRooted then
-		return
-	end
-	-- unanchored before the push, an anchored root doesn't take one
-	c.root.Anchored = isHeld
-	c.hum.AutoRotate = not isDowned and not isHeld and not isBroken
-	if isDowned ~= isRagdolled then
-		c.hum:ChangeState(if isDowned then Enum.HumanoidStateType.Physics else Enum.HumanoidStateType.Running)
-		if isDowned then
-			c.root:ApplyAngularImpulse(c.root.CFrame.RightVector * Config.RAGDOLL_TIP)
-		end
-	end
-	isRagdolled = isDowned
-	isAnchored = isHeld
-	isRooted = isBroken
-end
-
 -- a landing is never refused, see StateService.canMove
 function CombatController.allows(c: Ctx, to: Types.MoveState): boolean
 	if MoveDefs[to].group == "Grounded" and MoveDefs[c.state].group ~= "Grounded" then
@@ -527,15 +427,7 @@ function CombatController.load(c: Ctx)
 	isBlockHeld = false
 	parryUntil = 0
 	isParryOutOfStun = false
-	isRagdolled = false
-	isAnchored = false
-	isRooted = false
-	push = nil
-	pinAt = nil
-	juggleUntil = 0
-	riseUntil = 0
-	pendingRise = nil
-	holdY = nil
+	Body.load(c)
 
 	local animator = c.hum:WaitForChild("Animator") :: Animator
 	local function loadTrack(id: string)
@@ -560,7 +452,6 @@ function CombatController.load(c: Ctx)
 		oneShot = nil
 		pending = nil
 		swing = nil
-		push = nil
 	end)
 end
 
@@ -583,14 +474,13 @@ function CombatController.step(c: Ctx): boolean
 		combo = 0
 	end
 	settle(c, now)
-	c.isHeldUp = now < juggleUntil
 
 	-- with jump held in a juggle it's the slam, anywhere else just a light
 	if InputController.take("Light") then
 		local current = swing
 		local action: Types.CombatAction = if InputController.isDown("Jump")
 				and MoveDefs[c.state].group == "Airborne"
-				and now < juggleUntil
+				and Body.isJuggled(now)
 			then "Slam"
 			else "Light"
 		if not current then
@@ -622,9 +512,9 @@ function CombatController.step(c: Ctx): boolean
 
 	block(c, now)
 	move(c, now)
+	Body.step(c, serverState(c), now)
 	react(c)
 	respond(c)
-	body(c)
 	return swing ~= nil and swing ~= was
 end
 
@@ -643,30 +533,6 @@ end)
 -- the server times this round trip to judge parries and hits from this screen, so it goes straight back
 Remotes.Ping.OnClientEvent:Connect(function()
 	Remotes.Ping:FireServer()
-end)
-
--- the victim's own client moves its character, so the server asks it to fly
-Remotes.Knockback.OnClientEvent:Connect(function(dir: Vector3, speed: number)
-	push = { velocity = dir * speed, untilAt = os.clock() + Config.KNOCKBACK_TIME }
-end)
-
--- the server holds both fighters in a juggle, see Juggle. a rise throws the body up first, and 0 for both lets go
-Remotes.Juggle.OnClientEvent:Connect(function(rise: number, duration: number)
-	local now = os.clock()
-	juggleUntil = now + duration
-	if rise > 0 then
-		pendingRise = rise
-	end
-end)
-
--- the server follows the knockback's path and tells the victim where it hit a wall or the floor, see CombatService
-Remotes.Pin.OnClientEvent:Connect(function(pose: CFrame)
-	pinAt = pose
-end)
-
--- a hit that doesn't knock back moves the victim along the attacker's step, see CombatService
-Remotes.Shove.OnClientEvent:Connect(function(dir: Vector3, speed: number)
-	push = { velocity = dir * speed, untilAt = os.clock() + Config.LUNGE_TIME }
 end)
 
 -- a good parry starts the cooldown over on the server, so it does here too. either side of a hit plays its reaction.

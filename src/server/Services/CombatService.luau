@@ -309,6 +309,18 @@ local function resolve(
 	return "Hit"
 end
 
+-- sets the body where the server's path met a wall or the floor. a player's own client moves its character, so that
+-- client is told where
+local function pin(char: Model, root: BasePart, pose: CFrame)
+	local plr = Players:GetPlayerFromCharacter(char)
+	if plr then
+		Remotes.Pin:FireClient(plr, pose)
+	elseif not root.Anchored then
+		root.CFrame = pose
+	end
+	StateService.publish(char)
+end
+
 -- a knockback that meets a wall pins the body to it with its back to the wall, a true stun that also takes posture and
 -- a little damage, so the attacker has time to close in. another before WALL_IMMUNITY only stops there, the way the
 -- reference keeps a wall from pinning someone for good (R10.3)
@@ -333,14 +345,7 @@ local function wallSlam(char: Model, hit: RaycastResult)
 	local out = Vector3.new(hit.Normal.X, 0, hit.Normal.Z).Unit
 	local at = hit.Position + out * Config.WALL_SLAM_OFFSET
 	at = Vector3.new(at.X, root.Position.Y, at.Z)
-	local pose = CFrame.lookAt(at, at + out)
-	local plr = Players:GetPlayerFromCharacter(char)
-	if plr then
-		Remotes.Pin:FireClient(plr, pose)
-	elseif not root.Anchored then
-		root.CFrame = pose
-	end
-	StateService.publish(char)
+	pin(char, root, CFrame.lookAt(at, at + out))
 	if Config.DEBUG then
 		print("wall slam", char.Name)
 	end
@@ -361,14 +366,7 @@ local function floorSlam(char: Model, hit: RaycastResult)
 
 	local look = root.CFrame.LookVector
 	local at = hit.Position + Vector3.new(0, Config.ROOT_HEIGHT, 0)
-	local pose = CFrame.lookAt(at, at + Vector3.new(look.X, 0, look.Z))
-	local plr = Players:GetPlayerFromCharacter(char)
-	if plr then
-		Remotes.Pin:FireClient(plr, pose)
-	elseif not root.Anchored then
-		root.CFrame = pose
-	end
-	StateService.publish(char)
+	pin(char, root, CFrame.lookAt(at, at + Vector3.new(look.X, 0, look.Z)))
 	if Config.DEBUG then
 		print("floor slam", char.Name)
 	end
