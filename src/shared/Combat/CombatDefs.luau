@@ -27,6 +27,21 @@ local COOLDOWNS: { [Types.CombatCooldown]: number } = {
 	Light = Config.STRING_ENDLAG,
 }
 
+-- the most a character walks at in each state, anything not listed walks at its move state's own speed. both sides
+-- cap with it, the client for players and the bot's motor for itself
+local SPEED_CAPS: { [Types.CombatState]: number } = {
+	Attacking = Config.ATTACK_WALK_SPEED,
+	Parrying = Config.BLOCK_WALK_SPEED,
+	Blocking = Config.BLOCK_WALK_SPEED,
+	Stunned = Config.STUN_WALK_SPEED,
+	PostureBroken = 0,
+	WallStunned = 0,
+	FloorStunned = 0,
+	Downed = 0,
+	Gripping = 0,
+	Gripped = 0,
+}
+
 type Row = {
 	actions: { Types.CombatAction },
 	-- nil allows every move state
@@ -224,6 +239,7 @@ return table.freeze({
 	from = table.freeze(from),
 	guard = guard,
 	cooldowns = table.freeze(COOLDOWNS),
+	speedCaps = table.freeze(SPEED_CAPS),
 	defaultWeapon = DEFAULT_WEAPON,
 	weapon = weapon,
 	pick = pick,

@@ -61,19 +61,6 @@ local HOLDS_POSE: { [Types.CombatState]: true } = { WallStunned = true, FloorStu
 -- two frames at 60, a step never jumps past it
 local LAST_FRAME = 2 / 60
 
-local SPEED_CAPS: { [Types.CombatState]: number } = {
-	Attacking = Config.ATTACK_WALK_SPEED,
-	Parrying = Config.BLOCK_WALK_SPEED,
-	Blocking = Config.BLOCK_WALK_SPEED,
-	Stunned = Config.STUN_WALK_SPEED,
-	PostureBroken = 0,
-	WallStunned = 0,
-	FloorStunned = 0,
-	Downed = 0,
-	Gripping = 0,
-	Gripped = 0,
-}
-
 -- turns the attribute back into a state, anything else is ignored
 local BY_NAME: { [string]: Types.CombatState } = {}
 for state: Types.CombatState in CombatDefs.states do
@@ -413,7 +400,7 @@ function CombatController.speedCap(c: Ctx): number
 	if current and current.isHolding then
 		return Config.DELAY_WALK_SPEED
 	end
-	return SPEED_CAPS[rowState(c)] or math.huge
+	return CombatDefs.speedCaps[rowState(c)] or math.huge
 end
 
 function CombatController.load(c: Ctx)

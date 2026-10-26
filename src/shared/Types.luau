@@ -127,6 +127,9 @@ export type CombatCooldown = "Parry" | "Heavy" | "Delay" | "Run" | "Light" | "La
 
 export type WeaponId = "fist" | "dagger"
 
+-- a sparring bot's difficulty, see Bot.Brain. the admin menu lists them too
+export type BotLevel = "Easy" | "Normal" | "Hard"
+
 -- one per weapon type, see Movesets
 export type MovesetId = "fist" | "dagger"
 

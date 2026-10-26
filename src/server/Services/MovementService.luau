@@ -172,6 +172,32 @@ local function apply(
 	char:SetAttribute("MoveState", to)
 end
 
+-- the one way in for players and NPCs, it records the move and moves nothing. a player's client already moved its
+-- body, the server moves an NPC's itself, see Bot.Motor. states go by their wire name, like the client sends them
+function MovementService.act(char: Model, state: Types.MoveState): boolean
+	local st = StateService.get(char)
+	local root = StateService.liveRoot(char)
+	if not st or not root then
+		return false
+	end
+
+	local to: Types.MoveState = MoveDefs[state].wire
+	-- a timed state the server already ran out, the client is just catching up
+	local from: Types.MoveState = StateService.current(char)
+	if to == from then
+		char:SetAttribute("MoveState", from)
+		return true
+	end
+
+	local now = workspace:GetServerTimeNow()
+	local ok, wall = canEnter(char, st, root, from, to, now)
+	if not ok or not StateService.spend(char, MoveDefs[to].cost) then
+		return false
+	end
+	apply(char, st, from, to, now, wall)
+	return true
+end
+
 local function onMove(plr: Player, state: unknown)
 	if not RateLimit.check(plr, "Move") then
 		return
@@ -182,23 +208,7 @@ local function onMove(plr: Player, state: unknown)
 
 	local to: Types.MoveState? = WIRE[state]
 	local char = plr.Character
-	local st = if char then StateService.get(char) else nil
-	local root = if char then StateService.liveRoot(char) else nil
-	if not to or not char or not st or not root then
-		return
-	end
-
-	-- a timed state the server already ran out, the client is just catching up
-	local from: Types.MoveState = StateService.current(char)
-	if to == from then
-		return
-	end
-
-	local now = workspace:GetServerTimeNow()
-	local ok, wall = canEnter(char, st, root, from, to, now)
-	if ok and StateService.spend(char, MoveDefs[to].cost) then
-		apply(char, st, from, to, now, wall)
-	else
+	if to and char and not MovementService.act(char, to) then
 		Remotes.MoveDeny:FireClient(plr, to)
 	end
 end

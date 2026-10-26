@@ -229,7 +229,7 @@ local function add(inst: Instance)
 	-- setting up publishes the default weapon over the one it was placed with, so that one is asked for again after
 	local placed = inst:GetAttribute("Weapon")
 	CharacterService.add(inst)
-	NpcAnimator.add(inst, hum)
+	NpcAnimator.add(inst, hum, root)
 	if placed ~= nil then
 		inst:SetAttribute("Weapon", placed)
 	end

@@ -293,9 +293,18 @@ return table.freeze({
 	DUMMY_RESPAWN = 3,
 	-- a dummy only turns to and swings at a player this close
 	DUMMY_RANGE = 30,
+	-- every bot decides and moves on one tick. it only picks a target this close, and comes back BOT_RESPAWN after dying
+	BOT_TICK = 1 / 20,
+	BOT_RANGE = 80,
+	BOT_RESPAWN = 3,
+	-- the admin menu spawns bots this far in front, and no more than BOT_MAX of them
+	BOT_SPAWN_DISTANCE = 12,
+	BOT_MAX = 6,
 
 	-- user ids that get the admin menu on a live server, everyone gets it in Studio
 	ADMINS = table.freeze({ 10837572668 }),
 	EQUIP_BURST = 4,
 	EQUIP_REFILL = 2,
+	BOT_BURST = 6,
+	BOT_REFILL = 3,
 })

@@ -34,6 +34,7 @@ return table.freeze({
 	Pin = remote("Pin"),
 	Juggle = remote("Juggle"),
 	Equip = remote("Equip"),
+	Bot = remote("Bot"),
 	Ping = remote("Ping"),
 	CombatFx = unreliable("CombatFx"),
 })

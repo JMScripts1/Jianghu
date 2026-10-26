@@ -14,14 +14,17 @@ local WeaponDefs = require(ReplicatedStorage.Shared.Combat.WeaponDefs)
 local GUTTER = 16
 local PADDING = 8
 local GAP = 4
-local WIDTH = 120
+local WIDTH = 150
 local BUTTON_HEIGHT = 24
+local LABEL_HEIGHT = 16
 local BACKGROUND = Color3.fromRGB(18, 18, 18)
 local BUTTON = Color3.fromRGB(40, 40, 40)
 local HELD = Color3.fromRGB(225, 225, 225)
 local TEXT = Color3.fromRGB(235, 235, 235)
 local HELD_TEXT = Color3.fromRGB(18, 18, 18)
 local MUTED = Color3.fromRGB(150, 150, 150)
+
+local LEVELS: { Types.BotLevel } = { "Easy", "Normal", "Hard" }
 
 local player = Players.LocalPlayer
 
@@ -32,8 +35,17 @@ if not (RunService:IsStudio() or table.find(Config.ADMINS, player.UserId)) then
 	return AdminController
 end
 
-local buttons: { [Types.WeaponId]: TextButton } = {}
+-- each set is lit from an attribute the server sets, so a refused change leaves the old one lit
+local weaponButtons: { [string]: TextButton } = {}
+local levelButtons: { [string]: TextButton } = {}
+local botWeaponButtons: { [string]: TextButton } = {}
 local conn: RBXScriptConnection? = nil
+local order = 0
+
+local function nextOrder(): number
+	order += 1
+	return order
+end
 
 local function corner(parent: GuiObject)
 	local c = Instance.new("UICorner")
@@ -69,59 +81,106 @@ layout.Padding = UDim.new(0, GAP)
 layout.SortOrder = Enum.SortOrder.LayoutOrder
 layout.Parent = panel
 
-local title = Instance.new("TextLabel")
-title.Size = UDim2.fromOffset(WIDTH, 16)
-title.BackgroundTransparency = 1
-title.Font = Enum.Font.GothamMedium
-title.TextSize = 12
-title.TextColor3 = MUTED
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.Text = "Weapon"
-title.Parent = panel
-
--- sorted, so the order doesn't change between sessions
-local ids: { Types.WeaponId } = {}
-for weapon: Types.WeaponId in WeaponDefs do
-	table.insert(ids, weapon)
-end
-table.sort(ids)
-
-for i, weapon: Types.WeaponId in ids do
-	local button = Instance.new("TextButton")
-	button.LayoutOrder = i
-	button.Size = UDim2.fromOffset(WIDTH, BUTTON_HEIGHT)
-	button.BackgroundColor3 = BUTTON
-	button.BorderSizePixel = 0
-	button.Font = Enum.Font.GothamMedium
-	button.TextSize = 14
-	button.TextColor3 = TEXT
-	button.Text = weapon
-	corner(button)
-	button.Parent = panel
-	button.Activated:Connect(function()
-		Remotes.Equip:FireServer(weapon)
-	end)
-	buttons[weapon] = button
+local function label(text: string)
+	local title = Instance.new("TextLabel")
+	title.LayoutOrder = nextOrder()
+	title.Size = UDim2.fromOffset(WIDTH, LABEL_HEIGHT)
+	title.BackgroundTransparency = 1
+	title.Font = Enum.Font.GothamMedium
+	title.TextSize = 12
+	title.TextColor3 = MUTED
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.Text = text
+	title.Parent = panel
 end
 
--- lit from the attribute the server sets, so a refused swap leaves the old one lit
-local function show(char: Model)
-	local held = char:GetAttribute("Weapon")
-	for weapon, button in buttons do
-		local isHeld = weapon == held
-		button.BackgroundColor3 = if isHeld then HELD else BUTTON
-		button.TextColor3 = if isHeld then HELD_TEXT else TEXT
+local function button(parent: GuiObject, text: string, width: number, onPress: () -> ()): TextButton
+	local b = Instance.new("TextButton")
+	b.LayoutOrder = nextOrder()
+	b.Size = UDim2.fromOffset(width, BUTTON_HEIGHT)
+	b.BackgroundColor3 = BUTTON
+	b.BorderSizePixel = 0
+	b.Font = Enum.Font.GothamMedium
+	b.TextSize = 14
+	b.TextColor3 = TEXT
+	b.Text = text
+	corner(b)
+	b.Parent = parent
+	b.Activated:Connect(onPress)
+	return b
+end
+
+-- buttons side by side, sharing the panel's width
+local function row(texts: { string }, onPress: (string) -> ()): { [string]: TextButton }
+	local frame = Instance.new("Frame")
+	frame.LayoutOrder = nextOrder()
+	frame.Size = UDim2.fromOffset(WIDTH, BUTTON_HEIGHT)
+	frame.BackgroundTransparency = 1
+	frame.Parent = panel
+
+	local across = Instance.new("UIListLayout")
+	across.FillDirection = Enum.FillDirection.Horizontal
+	across.Padding = UDim.new(0, GAP)
+	across.SortOrder = Enum.SortOrder.LayoutOrder
+	across.Parent = frame
+
+	local width = (WIDTH - GAP * (#texts - 1)) / #texts
+	local made: { [string]: TextButton } = {}
+	for _, text in texts do
+		made[text] = button(frame, text, width, function()
+			onPress(text)
+		end)
+	end
+	return made
+end
+
+local function light(buttons: { [string]: TextButton }, value: unknown)
+	for name, b in buttons do
+		local isOn = name == value
+		b.BackgroundColor3 = if isOn then HELD else BUTTON
+		b.TextColor3 = if isOn then HELD_TEXT else TEXT
 	end
 end
+
+local levels: { string } = {}
+for _, level in LEVELS do
+	table.insert(levels, level)
+end
+
+-- sorted, so the order doesn't change between sessions
+local weapons: { string } = {}
+for weapon: Types.WeaponId in WeaponDefs do
+	table.insert(weapons, weapon)
+end
+table.sort(weapons)
+
+label("Weapon")
+for _, weapon in weapons do
+	weaponButtons[weapon] = button(panel, weapon, WIDTH, function()
+		Remotes.Equip:FireServer(weapon)
+	end)
+end
+
+-- every bot fights at the difficulty and with the weapon picked here, and new ones spawn with them
+label("Bots")
+levelButtons = row(levels, function(level)
+	Remotes.Bot:FireServer("Difficulty", level)
+end)
+botWeaponButtons = row(weapons, function(weapon)
+	Remotes.Bot:FireServer("Weapon", weapon)
+end)
+row({ "Spawn", "Clear" }, function(action)
+	Remotes.Bot:FireServer(action)
+end)
 
 local function onCharacterAdded(char: Model)
 	if conn then
 		conn:Disconnect()
 	end
 	conn = char:GetAttributeChangedSignal("Weapon"):Connect(function()
-		show(char)
+		light(weaponButtons, char:GetAttribute("Weapon"))
 	end)
-	show(char)
+	light(weaponButtons, char:GetAttribute("Weapon"))
 end
 
 UserInputService.InputBegan:Connect(function(input, isProcessed)
@@ -133,6 +192,18 @@ player.CharacterAdded:Connect(onCharacterAdded)
 if player.Character then
 	onCharacterAdded(player.Character)
 end
+
+-- the server keeps the bot settings on the folder its menu bots go in, see BotService
+task.spawn(function()
+	local bots = workspace:WaitForChild("Bots")
+	local function show()
+		light(levelButtons, bots:GetAttribute("Difficulty"))
+		light(botWeaponButtons, bots:GetAttribute("Weapon"))
+	end
+	bots:GetAttributeChangedSignal("Difficulty"):Connect(show)
+	bots:GetAttributeChangedSignal("Weapon"):Connect(show)
+	show()
+end)
 
 gui.Parent = player:WaitForChild("PlayerGui")
 
