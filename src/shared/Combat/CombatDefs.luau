@@ -42,6 +42,11 @@ local SPEED_CAPS: { [Types.CombatState]: number } = {
 	Gripped = 0,
 }
 
+-- a pin holds its own pose, so it cuts a one shot still playing, like the knockback's, and none plays over it. the
+-- pose stops on its last frame, so an animation shorter than the pin still covers all of it. both sides play by it,
+-- the client for its own character and NpcAnimator for NPCs
+local HOLDS_POSE: { [Types.CombatState]: true } = { WallStunned = true, FloorStunned = true }
+
 type Row = {
 	actions: { Types.CombatAction },
 	-- nil allows every move state
@@ -156,14 +161,14 @@ type Sides = { attacker: Types.Reaction?, target: Types.Reaction? }
 
 -- what each side of a hit plays, each from its own weapon. anything not listed plays nothing extra, a posture break
 -- shows through its state's loop
-local ON_HIT: { [Types.HitResult]: Sides } = {
+local ON_HIT: { [Types.CombatFx]: Sides } = {
 	Parried = { attacker = "Deflected", target = "Parry" },
 	Blocked = { target = "BlockHit" },
 	Hit = { target = "Hurt" },
 	Knocked = { target = "Knockback" },
 }
 
-local function reaction(result: Types.HitResult, isAttacker: boolean): Types.Reaction?
+local function reaction(result: Types.CombatFx, isAttacker: boolean): Types.Reaction?
 	local sides = ON_HIT[result]
 	if not sides then
 		return nil
@@ -240,6 +245,7 @@ return table.freeze({
 	guard = guard,
 	cooldowns = table.freeze(COOLDOWNS),
 	speedCaps = table.freeze(SPEED_CAPS),
+	holdsPose = table.freeze(HOLDS_POSE),
 	defaultWeapon = DEFAULT_WEAPON,
 	weapon = weapon,
 	pick = pick,

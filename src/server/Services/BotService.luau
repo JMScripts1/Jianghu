@@ -10,12 +10,9 @@ local Config = require(ReplicatedStorage.Shared.Config)
 local Types = require(ReplicatedStorage.Shared.Types)
 local Brain = require(script.Parent.Parent.Bot.Brain)
 local Motor = require(script.Parent.Parent.Bot.Motor)
-local NpcAnimator = require(script.Parent.Parent.Combat.NpcAnimator)
-local CharacterService = require(script.Parent.CharacterService)
-local CombatService = require(script.Parent.CombatService)
+local Npc = require(script.Parent.Parent.Npc)
 local StateService = require(script.Parent.StateService)
 
-local TAG = "Bot"
 local DEFAULT_LEVEL: Types.BotLevel = "Normal"
 
 -- sparring bots, tagged Bot in the place or spawned from the admin menu. they go through the same services players
@@ -64,10 +61,6 @@ local function check(model: Model)
 	if level ~= nil and not Brain.isLevel(level) then
 		warn("no bot difficulty called", level, model:GetFullName())
 	end
-	local weapon = model:GetAttribute("Weapon")
-	if weapon ~= nil and not CombatDefs.weapon(weapon) then
-		warn("no weapon called", weapon, model:GetFullName())
-	end
 end
 
 local function step(model: Model, mind: Brain.Mind, now: number)
@@ -76,74 +69,34 @@ local function step(model: Model, mind: Brain.Mind, now: number)
 	if not st or not root then
 		return
 	end
-	-- the same attribute CombatService publishes the weapon on, so setting it in Studio asks for a swap. refused mid
-	-- swing or stunned, so it's asked again every tick until it goes through
-	local weapon: Types.WeaponId? = CombatDefs.weapon(model:GetAttribute("Weapon"))
-	if weapon and weapon ~= st.combat.weapon then
-		CombatService.equip(model, weapon)
-	end
+	Npc.equip(model, st)
 	Brain.step(model, mind, target(model, root), Brain.skill(model), now)
 	Motor.step(mind.body, now)
 end
 
 local function add(inst: Instance)
-	if not inst:IsA("Model") or not inst:IsDescendantOf(workspace) or bots[inst] then
+	if inst:IsA("Model") and bots[inst] then
 		return
 	end
-	local hum = inst:FindFirstChildOfClass("Humanoid")
-	local root = StateService.liveRoot(inst)
-	if not hum or not root then
-		warn("bot needs a living Humanoid and a HumanoidRootPart", inst:GetFullName())
+	local parts = Npc.add(inst, "bot", Config.BOT_RESPAWN, { "Difficulty" })
+	if not parts then
 		return
 	end
-
-	-- owned by the server, or a player standing next to it could take it over and fling it
-	if root:CanSetNetworkOwnership() then
-		root:SetNetworkOwner(nil)
-	end
-
-	-- a grip kills it, so it comes back fresh where it stood, from a copy taken before anything was added to it
-	local fresh = inst:Clone()
-	local home = inst.Parent
-	hum.Died:Connect(function()
-		task.delay(Config.BOT_RESPAWN, function()
-			-- cleared from the menu while it lay dead
-			if not inst:IsDescendantOf(workspace) then
-				return
-			end
-			-- the difficulty and weapon it was switched to in Studio, not the ones it started with
-			fresh:SetAttribute("Difficulty", inst:GetAttribute("Difficulty"))
-			fresh:SetAttribute("Weapon", inst:GetAttribute("Weapon"))
-			inst:Destroy()
-			fresh.Parent = home
-		end)
+	local model = parts.model
+	check(model)
+	model:GetAttributeChangedSignal("Difficulty"):Connect(function()
+		check(model)
 	end)
 
-	-- setting up publishes the default weapon over the one it was placed with, so that one is asked for again after
-	local placed = inst:GetAttribute("Weapon")
-	CharacterService.add(inst)
-	NpcAnimator.add(inst, hum, root)
-	if placed ~= nil then
-		inst:SetAttribute("Weapon", placed)
-	end
-	check(inst)
-	inst:GetAttributeChangedSignal("Difficulty"):Connect(function()
-		check(inst)
-	end)
-	inst:GetAttributeChangedSignal("Weapon"):Connect(function()
-		check(inst)
-	end)
-
-	bots[inst] = Brain.new(Motor.new(inst, hum, root), workspace:GetServerTimeNow())
+	bots[model] = Brain.new(Motor.new(model, parts.hum, parts.root), workspace:GetServerTimeNow())
 end
 
 local function remove(inst: Instance)
 	local mind = if inst:IsA("Model") then bots[inst] else nil
 	if mind then
-		bots[inst :: Model] = nil
+		bots[mind.body.char] = nil
 		Motor.remove(mind.body)
-		NpcAnimator.remove(inst :: Model)
-		CharacterService.remove(inst :: Model)
+		Npc.remove(mind.body.char)
 	end
 end
 
@@ -183,7 +136,7 @@ function BotService.spawn(at: CFrame): boolean
 	bot:SetAttribute("Difficulty", spawned:GetAttribute("Difficulty"))
 	bot:SetAttribute("Weapon", spawned:GetAttribute("Weapon"))
 	bot:PivotTo(at)
-	bot:AddTag(TAG)
+	bot:AddTag(Config.BOT_TAG)
 	bot.Parent = spawned
 	return true
 end
@@ -212,9 +165,9 @@ function BotService.setWeapon(weapon: Types.WeaponId)
 	end
 end
 
-CollectionService:GetInstanceAddedSignal(TAG):Connect(add)
-CollectionService:GetInstanceRemovedSignal(TAG):Connect(remove)
-for _, inst in CollectionService:GetTagged(TAG) do
+CollectionService:GetInstanceAddedSignal(Config.BOT_TAG):Connect(add)
+CollectionService:GetInstanceRemovedSignal(Config.BOT_TAG):Connect(remove)
+for _, inst in CollectionService:GetTagged(Config.BOT_TAG) do
 	add(inst)
 end
 

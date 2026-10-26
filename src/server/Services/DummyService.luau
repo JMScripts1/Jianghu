@@ -6,12 +6,9 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local AttackDefs = require(ReplicatedStorage.Shared.Combat.AttackDefs)
-local CombatDefs = require(ReplicatedStorage.Shared.Combat.CombatDefs)
 local Config = require(ReplicatedStorage.Shared.Config)
-local Types = require(ReplicatedStorage.Shared.Types)
 local Hitbox = require(script.Parent.Parent.Combat.Hitbox)
-local NpcAnimator = require(script.Parent.Parent.Combat.NpcAnimator)
-local CharacterService = require(script.Parent.CharacterService)
+local Npc = require(script.Parent.Parent.Npc)
 local CombatService = require(script.Parent.CombatService)
 local StateService = require(script.Parent.StateService)
 
@@ -28,7 +25,6 @@ type Dummy = {
 	isDelayNext: boolean,
 }
 
-local TAG = "Dummy"
 local TICK = 1 / 20
 -- pressed this far ahead, the hit lands in the middle of the parry window
 local PARRY_LEAD = Config.PARRY_WINDOW / 2
@@ -52,20 +48,10 @@ local function mode(model: Model): Mode
 	return if typeof(value) == "string" and MODES[value] then MODES[value] else "Idle"
 end
 
--- the same attribute CombatService publishes the weapon on, so setting it in Studio asks for a swap. nil when it
--- names nothing
-local function weaponOf(model: Model): Types.WeaponId?
-	return CombatDefs.weapon(model:GetAttribute("Weapon"))
-end
-
 local function check(model: Model)
 	local value = model:GetAttribute("Mode")
 	if value ~= nil and not (typeof(value) == "string" and MODES[value]) then
 		warn("no dummy mode called", value, model:GetFullName())
-	end
-	local weapon = model:GetAttribute("Weapon")
-	if weapon ~= nil and not weaponOf(model) then
-		warn("no weapon called", weapon, model:GetFullName())
 	end
 end
 
@@ -90,10 +76,6 @@ local function face(root: BasePart, target: BasePart)
 	if (at - pos).Magnitude > 0.1 then
 		root.CFrame = CFrame.lookAt(pos, at)
 	end
-end
-
-local function isAimedAt(model: Model, attacker: BasePart, swing: StateService.Swing): boolean
-	return table.find(Hitbox.query(attacker, AttackDefs[swing.id].box), model) ~= nil
 end
 
 -- every swing about to land on this dummy, from players and the other dummies. a press for a swing aimed at
@@ -123,7 +105,7 @@ local function parry(model: Model, d: Dummy, st: StateService.CharState, now: nu
 			continue
 		end
 
-		if hitAt > now and hitAt - now <= PARRY_LEAD and isAimedAt(model, root, swing) then
+		if hitAt > now and hitAt - now <= PARRY_LEAD and Hitbox.reaches(root, AttackDefs[swing.id].box, model) then
 			d.parried = swing
 			-- a tap: letting go doesn't cut the window short
 			CombatService.act(model, "Block")
@@ -151,11 +133,7 @@ local function step(model: Model, d: Dummy, now: number)
 	if m ~= "Block" and combat.isBlockHeld then
 		CombatService.act(model, "Unblock")
 	end
-	-- refused mid swing or stunned, so it's asked again every tick until it goes through
-	local weapon: Types.WeaponId? = weaponOf(model)
-	if weapon and weapon ~= combat.weapon then
-		CombatService.equip(model, weapon)
-	end
+	Npc.equip(model, st)
 	local releaseAt = d.releaseAt
 	if releaseAt and now >= releaseAt then
 		d.releaseAt = nil
@@ -198,52 +176,19 @@ local function step(model: Model, d: Dummy, now: number)
 end
 
 local function add(inst: Instance)
-	if not inst:IsA("Model") or not inst:IsDescendantOf(workspace) then
+	local parts = Npc.add(inst, "dummy", Config.DUMMY_RESPAWN, { "Mode" })
+	if not parts then
 		return
 	end
-	local hum = inst:FindFirstChildOfClass("Humanoid")
-	local root = StateService.liveRoot(inst)
-	if not hum or not root then
-		warn("dummy needs a living Humanoid and a HumanoidRootPart", inst:GetFullName())
-		return
-	end
-
-	-- owned by the server, or a player standing next to it could take it over and fling it
-	if root:CanSetNetworkOwnership() then
-		root:SetNetworkOwner(nil)
-	end
-
-	-- a grip kills it, so it comes back fresh where it stood, from a copy taken before anything was added to it
-	local fresh = inst:Clone()
-	local home = inst.Parent
-	hum.Died:Connect(function()
-		task.delay(Config.DUMMY_RESPAWN, function()
-			-- the mode and weapon it was switched to in Studio, not the ones it started with
-			fresh:SetAttribute("Mode", inst:GetAttribute("Mode"))
-			fresh:SetAttribute("Weapon", inst:GetAttribute("Weapon"))
-			inst:Destroy()
-			fresh.Parent = home
-		end)
+	local model = parts.model
+	check(model)
+	model:GetAttributeChangedSignal("Mode"):Connect(function()
+		check(model)
 	end)
 
-	-- setting up publishes the default weapon over the one it was placed with, so that one is asked for again after
-	local placed = inst:GetAttribute("Weapon")
-	CharacterService.add(inst)
-	NpcAnimator.add(inst, hum, root)
-	if placed ~= nil then
-		inst:SetAttribute("Weapon", placed)
-	end
-	check(inst)
-	inst:GetAttributeChangedSignal("Mode"):Connect(function()
-		check(inst)
-	end)
-	inst:GetAttributeChangedSignal("Weapon"):Connect(function()
-		check(inst)
-	end)
-
-	dummies[inst] = {
-		root = root,
-		hum = hum,
+	dummies[model] = {
+		root = parts.root,
+		hum = parts.hum,
 		-- staggered, so a row of attack dummies doesn't swing in step
 		nextAttackAt = workspace:GetServerTimeNow() + math.random() * Config.DUMMY_INTERVAL,
 		isDelayNext = false,
@@ -253,14 +198,13 @@ end
 local function remove(inst: Instance)
 	if inst:IsA("Model") and dummies[inst] then
 		dummies[inst] = nil
-		NpcAnimator.remove(inst)
-		CharacterService.remove(inst)
+		Npc.remove(inst)
 	end
 end
 
-CollectionService:GetInstanceAddedSignal(TAG):Connect(add)
-CollectionService:GetInstanceRemovedSignal(TAG):Connect(remove)
-for _, inst in CollectionService:GetTagged(TAG) do
+CollectionService:GetInstanceAddedSignal(Config.DUMMY_TAG):Connect(add)
+CollectionService:GetInstanceRemovedSignal(Config.DUMMY_TAG):Connect(remove)
+for _, inst in CollectionService:GetTagged(Config.DUMMY_TAG) do
 	add(inst)
 end
 

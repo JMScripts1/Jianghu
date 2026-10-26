@@ -141,10 +141,6 @@ local function reach(box: Vector3): number
 	return box.Z + Config.HIT_SLACK * 2 - Config.BOX_BACK
 end
 
-local function isAimedAt(model: Model, from: BasePart, def: Types.AttackDef): boolean
-	return table.find(Hitbox.query(from, def.box), model) ~= nil
-end
-
 function Brain.skill(model: Model): Skill
 	local value = model:GetAttribute("Difficulty")
 	return LEVELS[if typeof(value) == "string" and LEVELS[value :: Level] then value :: Level else DEFAULT_LEVEL]
@@ -272,7 +268,7 @@ local function defend(
 ): string?
 	local sight = mind.sight
 	local swing = Sight.swing(sight, now)
-	if swing and swing ~= mind.threat and isAimedAt(model, from, AttackDefs[swing.id]) then
+	if swing and swing ~= mind.threat and Hitbox.reaches(from, AttackDefs[swing.id].box, model) then
 		local isLocked = now < st.combat.lockedUntil
 		mind.threat = swing
 		mind.answer = choose(state, AttackDefs[swing.id], skill, StateService.posture(model), isLocked)
@@ -448,7 +444,7 @@ local function offend(
 	end
 	local targetRoot = StateService.liveRoot(target)
 	local box = AttackDefs[light[1]].box
-	if not targetRoot or not table.find(Hitbox.query(root, box), target) then
+	if not targetRoot or not Hitbox.reaches(root, box, target) then
 		return if mind.isPunishing then "Punish" else "Close", "In"
 	end
 

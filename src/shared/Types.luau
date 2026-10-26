@@ -69,6 +69,8 @@ export type WallHit = {
 	side: ("Left" | "Right")?,
 	normal: Vector3,
 	part: BasePart,
+	-- where the ray met the wall
+	point: Vector3,
 }
 
 export type LedgeHit = {
@@ -139,6 +141,36 @@ export type AttackId = string
 -- Knocked is a hit that knocked its target back
 export type HitResult = "Dodged" | "Parried" | "Blocked" | "Broken" | "Hit" | "Knocked"
 
+-- what CombatFx carries: a hit's result, a swing being delayed or coming through, or a knockback pinning its body to a
+-- wall or the floor
+export type CombatFx = HitResult | "Delay" | "Swing" | "WallSlam" | "FloorSlam"
+
+-- the attacking weapon's kind of hit, it picks the effects and sounds of every hit it lands, blocked and parried ones too
+export type HitType = "Blunt" | "Slash"
+
+-- the hand an attack swings with, where its delay's glare shows
+export type Hand = "Right" | "Left" | "Both"
+
+-- each hit type has its own of these, and every weapon shares the rest
+export type HitFx = "Hit" | "HeavyHit" | "Block" | "Parry"
+export type SharedFx = "Break" | "WallSlam" | "FloorSlam" | "Delay"
+
+-- the tilts a swing effect comes in, seen from behind the attacker. Right and Left are the side held high, so
+-- DiagonalRight runs / and DiagonalLeft runs \. see CombatFx for the angles
+export type SwingAngle = "Horizontal" | "DiagonalRight" | "DiagonalLeft" | "Vertical"
+
+-- the arc an attack cuts through the air as it comes through. fx names a template in Vfx/Swing, angle tilts it, and
+-- at is where it sits on the root and any fine turn on top, lined up with the animation in Studio. left out they sit
+-- it level on the root's centre.
+-- a flat slash faces along its emission direction, so turning it about that axis does nothing. spin is the degrees
+-- added to every emitter's Rotation, which is what turns it round in its own plane
+export type SwingFx = {
+	fx: string,
+	angle: SwingAngle?,
+	at: CFrame?,
+	spin: number?,
+}
+
 -- which slot of the weapon an attack came from
 -- Launch is the crouched uppercut that starts a juggle, Slam the jump held light in one
 export type AttackKind = "Light" | "Heavy" | "Run" | "Air" | "Launch" | "Slam"
@@ -175,6 +207,9 @@ export type AttackDef = {
 	isGuardBreak: boolean,
 	-- can't be parried out of
 	isHeavyStun: boolean,
+	hitType: HitType,
+	hand: Hand,
+	swing: SwingFx?,
 	-- the strike that starts when this one ends, in the same animation, see AttackSpec.follow
 	follow: AttackId?,
 }
@@ -199,6 +234,13 @@ export type AttackSpec = {
 	canDodge: boolean?,
 	isGuardBreak: boolean?,
 	isHeavyStun: boolean?,
+	-- a stab in a slashing moveset, say. left out it's the moveset's, or a follow's first strike's
+	hitType: HitType?,
+	-- left out, a string's lights alternate starting on the right and everything else is the right. a follow takes its
+	-- first strike's
+	hand: Hand?,
+	-- left out it has no swing effect. a follow's is its own, it cuts its own arc
+	swing: SwingFx?,
 	-- another strike in the same animation, starting the moment this one's recovery ends, with its own hit and its own
 	-- parry or block. it can't be delayed, it carries the first strike's delay instead
 	follow: AttackSpec?,
@@ -215,6 +257,8 @@ export type Moveset = {
 	launch: AttackSpec,
 	-- the jump held light in a juggle, it spikes the target down
 	slam: AttackSpec,
+	-- every attack's unless it says otherwise, left out it's the kind's, Blunt like the fist
+	hitType: HitType?,
 	-- this weapon type's own reactions, anything empty or left out plays the one in CombatAnims
 	reactions: { [Reaction]: ReactionAnims }?,
 	-- a weapon type without one can't grip

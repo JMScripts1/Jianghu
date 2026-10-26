@@ -39,12 +39,6 @@ type Npc = {
 local CUTS_SWING: { [Types.CombatState]: true } =
 	{ Stunned = true, PostureBroken = true, WallStunned = true, FloorStunned = true, Downed = true }
 
--- a pin holds its own pose, so it cuts a one shot still playing, like the knockback's, and none plays over it. the
--- pose stops on its last frame, so an animation shorter than the pin still covers all of it
-local HOLDS_POSE: { [Types.CombatState]: true } = { WallStunned = true, FloorStunned = true }
--- two frames at 60, a step never jumps past it
-local LAST_FRAME = 2 / 60
-
 -- slower than this flat it's standing, Walk and CrouchWalk cover standing still too
 local MIN_MOVING = 1
 -- these play once and the fall loop takes over, see AnimationController
@@ -149,7 +143,7 @@ local function onState(char: Model)
 		stop(npc.swinging)
 		npc.swinging = nil
 	end
-	npc.isPosing = HOLDS_POSE[state] == true
+	npc.isPosing = CombatDefs.holdsPose[state] == true
 	if npc.isPosing then
 		stop(npc.oneShot)
 		npc.oneShot = nil
@@ -240,7 +234,7 @@ end
 function NpcAnimator.react(char: Model, name: Types.Reaction)
 	local npc = npcs[char]
 	local ids = reactions(char)[name]
-	if not npc or not ids or #ids == 0 or HOLDS_POSE[StateService.combatState(char)] then
+	if not npc or not ids or #ids == 0 or CombatDefs.holdsPose[StateService.combatState(char)] then
 		return
 	end
 	local turn = (npc.turns[name] or 0) % #ids + 1
@@ -257,7 +251,7 @@ function NpcAnimator.step()
 	local now = os.clock()
 	for char, npc in npcs do
 		local t = npc.looping
-		if npc.isPosing and t and t.Length > 0 and t.TimePosition >= t.Length - LAST_FRAME then
+		if npc.isPosing and t and t.Length > 0 and t.TimePosition >= t.Length - Config.LAST_FRAME then
 			t:AdjustSpeed(0)
 		end
 		move(npc, char)

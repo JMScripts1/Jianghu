@@ -17,7 +17,7 @@ overlap.FilterType = Enum.RaycastFilterType.Include
 
 -- the map only, players and NPCs are all in a group MoveProbe passes through
 local sight = RaycastParams.new()
-sight.CollisionGroup = "MoveProbe"
+sight.CollisionGroup = Config.PROBE_GROUP
 
 -- a root can't be taken out of the filter on its own, so the whole list is set again
 local function refresh()
@@ -80,6 +80,11 @@ function Hitbox.query(from: BasePart, box: Vector3): { Model }
 		table.insert(found, char)
 	end
 	return found
+end
+
+-- whether a swing from `from` with this box would catch target, the same query the swing itself runs
+function Hitbox.reaches(from: BasePart, box: Vector3, target: Model): boolean
+	return table.find(Hitbox.query(from, box), target) ~= nil
 end
 
 return Hitbox

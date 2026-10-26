@@ -1,14 +1,19 @@
 --!strict
 -- Jianghu by Ruha.luau (github.com/JMScripts1)
 -- MIT licensed, see LICENSE. Feel free to remove this header.
+local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
+local Config = require(ReplicatedStorage.Shared.Config)
 local MoveDefs = require(ReplicatedStorage.Shared.Movement.MoveDefs)
+local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local Trove = require(ReplicatedStorage.Packages.Trove)
 local Types = require(ReplicatedStorage.Shared.Types)
+local CombatFx = require(script.Parent.Effects.CombatFx)
 local Fov = require(script.Parent.Effects.Fov)
+local MoveFx = require(script.Parent.Effects.MoveFx)
 local Sfx = require(script.Parent.Effects.Sfx)
 local Context = require(script.Parent.Movement.Context)
 
@@ -36,6 +41,18 @@ local function stateOf(char: Model): Types.MoveState?
 	return if typeof(value) == "string" then BY_NAME[value] else nil
 end
 
+-- a ground dash is airborne on paper and a mantle ends standing, neither is a landing you'd hear or see
+local function isLanding(from: Types.MoveState, to: Types.MoveState): boolean
+	local def = MoveDefs[from]
+	return MoveDefs[to].group == "Grounded" and def.group ~= "Grounded" and not def.isDash and from ~= "Mantle"
+end
+
+local function play(root: BasePart, from: Types.MoveState, to: Types.MoveState)
+	local landed = isLanding(from, to)
+	Sfx.state(root, from, to, landed)
+	MoveFx.state(root, from, to, landed)
+end
+
 local function unwatch(char: Model)
 	local trove = watched[char]
 	if trove then
@@ -58,7 +75,7 @@ local function watch(char: Model)
 	trove:Connect(char:GetAttributeChangedSignal("MoveState"), function()
 		local state: Types.MoveState? = stateOf(char)
 		if state then
-			Sfx.state(root, last, state)
+			play(root, last, state)
 			last = state
 		end
 	end)
@@ -84,6 +101,12 @@ local function onPlayerAdded(plr: Player)
 	end
 end
 
+local function onBot(inst: Instance)
+	if inst:IsA("Model") then
+		watch(inst)
+	end
+end
+
 function EffectController.load(c: Ctx)
 	Fov.load(c)
 	Sfx.add(c.char, c.root, function()
@@ -95,10 +118,11 @@ function EffectController.load(c: Ctx)
 end
 
 function EffectController.play(c: Ctx)
-	Sfx.state(c.root, c.prev, c.state)
+	play(c.root, c.prev, c.state)
 end
 
 RunService.PreRender:Connect(Sfx.step)
+Remotes.CombatFx.OnClientEvent:Connect(CombatFx.play)
 
 Players.PlayerAdded:Connect(onPlayerAdded)
 Players.PlayerRemoving:Connect(function(plr: Player)
@@ -108,6 +132,17 @@ Players.PlayerRemoving:Connect(function(plr: Player)
 end)
 for _, plr in Players:GetPlayers() do
 	onPlayerAdded(plr)
+end
+
+-- bots move on the server and publish MoveState the same way a player's client does
+CollectionService:GetInstanceAddedSignal(Config.BOT_TAG):Connect(onBot)
+CollectionService:GetInstanceRemovedSignal(Config.BOT_TAG):Connect(function(inst: Instance)
+	if inst:IsA("Model") then
+		unwatch(inst)
+	end
+end)
+for _, inst in CollectionService:GetTagged(Config.BOT_TAG) do
+	task.spawn(onBot, inst)
 end
 
 return EffectController

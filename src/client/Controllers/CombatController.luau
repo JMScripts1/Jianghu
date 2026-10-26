@@ -12,6 +12,7 @@ local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local Types = require(ReplicatedStorage.Shared.Types)
 local WeaponDefs = require(ReplicatedStorage.Shared.Combat.WeaponDefs)
 local Body = require(script.Parent.Combat.Body)
+local CombatFx = require(script.Parent.Effects.CombatFx)
 local Context = require(script.Parent.Movement.Context)
 local InputController = require(script.Parent.InputController)
 
@@ -34,6 +35,8 @@ type Swing = {
 	held: number,
 	-- studs a second pushed forward at the hit, 0 once it has gone
 	lunge: number,
+	-- its swing effect has played, at the hit
+	hasSwung: boolean,
 	kind: Types.AttackKind,
 	track: AnimationTrack?,
 }
@@ -54,12 +57,6 @@ local FROM_SERVER: { [Types.CombatState]: true } = {
 	Gripping = true,
 	Gripped = true,
 }
-
--- a pin holds its own pose, so it cuts a one shot still playing, like the knockback's, and none plays over it. the
--- pose stops on its last frame, so an animation shorter than the pin still covers all of it
-local HOLDS_POSE: { [Types.CombatState]: true } = { WallStunned = true, FloorStunned = true }
--- two frames at 60, a step never jumps past it
-local LAST_FRAME = 2 / 60
 
 -- turns the attribute back into a state, anything else is ignored
 local BY_NAME: { [string]: Types.CombatState } = {}
@@ -207,6 +204,7 @@ local function attack(c: Ctx, action: Types.CombatAction, button: InputControlle
 		held = 0,
 		-- the run drops to a walk as the swing starts, so the lunge keeps the momentum it came in with
 		lunge = if picked.kind == "Run" then c.momentum * Config.RUN_ATTACK_LUNGE else def.lunge or 0,
+		hasSwung = false,
 		kind = picked.kind,
 		track = track,
 	}
@@ -228,6 +226,7 @@ local function follow(current: Swing, id: Types.AttackId)
 		isHolding = false,
 		held = current.held,
 		lunge = if def.lunge then def.lunge + bonus else 0,
+		hasSwung = false,
 		kind = current.kind,
 		track = current.track,
 	}
@@ -286,7 +285,7 @@ end
 
 -- the same delay CombatService runs, on the client's own clock. held through the delay point with Delay ready, the
 -- windup and the animation run at DELAY_SPEED until the button comes up or DELAY_MAX, and the hit moves later
-local function hold(now: number)
+local function hold(c: Ctx, now: number)
 	local current = swing
 	if not current then
 		return
@@ -303,6 +302,8 @@ local function hold(now: number)
 			if current.track then
 				current.track:AdjustSpeed(def.speed * Config.DELAY_SPEED)
 			end
+			-- the server's copy reaches everyone else, this one skips the trip
+			CombatFx.delay(c.char, current.id)
 		end
 	end
 
@@ -340,6 +341,16 @@ local function move(c: Ctx, now: number)
 	end
 end
 
+-- the arc the swing cuts, the moment it comes through. a delay moves hitAt later, so a held swing waits for its
+-- release. the server's copy reaches everyone else, this one skips the trip
+local function swingFx(c: Ctx, now: number)
+	local current = swing
+	if current and not current.hasSwung and now >= current.hitAt then
+		current.hasSwung = true
+		CombatFx.swing(c.char, current.id)
+	end
+end
+
 local function react(c: Ctx)
 	local current: Types.CombatState = state(c)
 	-- Idle and Attacking have no slot at all
@@ -347,7 +358,12 @@ local function react(c: Ctx)
 	local id = if ids then ids[1] else nil
 	local track = if id then tracks[id] else nil
 	if track == reacting then
-		if track and HOLDS_POSE[current] and track.Length > 0 and track.TimePosition >= track.Length - LAST_FRAME then
+		if
+			track
+			and CombatDefs.holdsPose[current]
+			and track.Length > 0
+			and track.TimePosition >= track.Length - Config.LAST_FRAME
+		then
 			track:AdjustSpeed(0)
 		end
 		return
@@ -356,7 +372,7 @@ local function react(c: Ctx)
 		reacting:Stop(Config.COMBAT_FADE)
 	end
 	reacting = track
-	if track and HOLDS_POSE[current] then
+	if track and CombatDefs.holdsPose[current] then
 		stopOneShot()
 	end
 	if track then
@@ -368,7 +384,7 @@ end
 local function respond(c: Ctx)
 	local name: Types.Reaction? = pending
 	pending = nil
-	if MoveDefs[c.state].isDash or HOLDS_POSE[state(c)] then
+	if MoveDefs[c.state].isDash or CombatDefs.holdsPose[state(c)] then
 		stopOneShot()
 		return
 	end
@@ -495,10 +511,11 @@ function CombatController.step(c: Ctx): boolean
 		current.isHeld = false
 		Remotes.Combat:FireServer("Release")
 	end
-	hold(now)
+	hold(c, now)
 
 	block(c, now)
 	move(c, now)
+	swingFx(c, now)
 	Body.step(c, serverState(c), now)
 	react(c)
 	respond(c)
@@ -524,8 +541,8 @@ end)
 
 -- a good parry starts the cooldown over on the server, so it does here too. either side of a hit plays its reaction.
 -- a parried swing is over on the server already, so it stops here without waiting for the Stunned attribute, or it
--- keeps playing under the deflect
-Remotes.CombatFx.OnClientEvent:Connect(function(attacker: Model, target: Model, _id: string, result: Types.HitResult)
+-- keeps playing under the deflect. the effects themselves are EffectController's
+Remotes.CombatFx.OnClientEvent:Connect(function(attacker: Model?, target: Model?, _id: string, result: Types.CombatFx)
 	local char = player.Character
 	if result == "Parried" and target == char then
 		cooldownUntil[PARRY] = 0

@@ -26,6 +26,8 @@ local LIGHT: Types.AttackDef = {
 	canDodge = true,
 	isGuardBreak = false,
 	isHeavyStun = false,
+	hitType = "Blunt",
+	hand = "Right",
 }
 
 -- guard break, so blocking it breaks posture and its posture number is never used
@@ -48,6 +50,8 @@ local HEAVY: Types.AttackDef = {
 	canDodge = false,
 	isGuardBreak = true,
 	isHeavyStun = true,
+	hitType = "Blunt",
+	hand = "Right",
 }
 
 -- the lunge comes from momentum, see RUN_ATTACK_LUNGE
@@ -67,6 +71,8 @@ local RUN: Types.AttackDef = {
 	canDodge = true,
 	isGuardBreak = false,
 	isHeavyStun = false,
+	hitType = "Blunt",
+	hand = "Right",
 }
 
 local AIR: Types.AttackDef = {
@@ -85,6 +91,8 @@ local AIR: Types.AttackDef = {
 	canDodge = true,
 	isGuardBreak = false,
 	isHeavyStun = false,
+	hitType = "Blunt",
+	hand = "Right",
 }
 
 -- the stun lasts through the rise and the swing up after it, so the first hit in the air connects
@@ -105,6 +113,8 @@ local LAUNCH: Types.AttackDef = {
 	canDodge = true,
 	isGuardBreak = false,
 	isHeavyStun = false,
+	hitType = "Blunt",
+	hand = "Right",
 }
 
 -- taller than a light, the target is often under it. its knockback goes down at SLAM_ANGLE, see CombatService
@@ -127,11 +137,19 @@ local SLAM: Types.AttackDef = {
 	canDodge = true,
 	isGuardBreak = false,
 	isHeavyStun = false,
+	hitType = "Blunt",
+	hand = "Right",
 }
 
 -- the weapon's stats go in here, so every number downstream is already that weapon's own.
 -- booleans go through ~= nil, `or` would turn a false back into the kind's true
-local function build(kind: Types.AttackDef, spec: Types.AttackSpec, weapon: Types.WeaponDef): Types.AttackDef
+local function build(
+	kind: Types.AttackDef,
+	spec: Types.AttackSpec,
+	weapon: Types.WeaponDef,
+	hitType: Types.HitType?,
+	hand: Types.Hand?
+): Types.AttackDef
 	local delayAt = spec.delayAt or kind.delayAt
 	local box = spec.box or kind.box
 	local knockback = spec.knockback or kind.knockback
@@ -156,39 +174,50 @@ local function build(kind: Types.AttackDef, spec: Types.AttackSpec, weapon: Type
 		canDodge = if spec.canDodge ~= nil then spec.canDodge else kind.canDodge,
 		isGuardBreak = if spec.isGuardBreak ~= nil then spec.isGuardBreak else kind.isGuardBreak,
 		isHeavyStun = if spec.isHeavyStun ~= nil then spec.isHeavyStun else kind.isHeavyStun,
+		hitType = spec.hitType or hitType or kind.hitType,
+		hand = spec.hand or hand or kind.hand,
+		swing = spec.swing,
 	}
 end
 
 local AttackDefs: { [Types.AttackId]: Types.AttackDef } = {}
 
 -- a follow goes in under its first strike's id and its number, like dagger_heavy_2, plays in that strike's animation,
--- and can't be delayed
+-- can't be delayed, and hits and swings the way that strike does unless it says otherwise
 local function add(
 	base: Types.AttackId,
 	n: number,
 	kind: Types.AttackDef,
 	spec: Types.AttackSpec,
 	weapon: Types.WeaponDef,
-	anim: string?
+	hand: Types.Hand?,
+	first: Types.AttackDef?
 )
-	local def = build(kind, spec, weapon)
-	if anim then
-		def.anim = anim
+	local def = build(
+		kind,
+		spec,
+		weapon,
+		if first then first.hitType else Movesets[weapon.moveset].hitType,
+		if first then first.hand else hand
+	)
+	if first then
+		def.anim = first.anim
 		def.delayAt = nil
 	end
 	AttackDefs[if n == 1 then base else `{base}_{n}`] = def
 	local follow = spec.follow
 	if follow then
 		def.follow = `{base}_{n + 1}`
-		add(base, n + 1, kind, follow, weapon, def.anim)
+		add(base, n + 1, kind, follow, weapon, def.hand, def)
 	end
 end
 
--- every weapon gets its own copy of its moveset's attacks, under the ids WeaponDefs made for it
+-- every weapon gets its own copy of its moveset's attacks, under the ids WeaponDefs made for it. a string's lights
+-- swing right, left, right and on, everything else with the kind's hand
 for _, weapon in WeaponDefs do
 	local moveset = Movesets[weapon.moveset]
 	for i, id in weapon.light do
-		add(id, 1, LIGHT, moveset.light[i], weapon)
+		add(id, 1, LIGHT, moveset.light[i], weapon, if i % 2 == 1 then "Right" else "Left")
 	end
 	add(weapon.heavy, 1, HEAVY, moveset.heavy, weapon)
 	add(weapon.run, 1, RUN, moveset.run, weapon)

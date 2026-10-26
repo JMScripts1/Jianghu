@@ -4,23 +4,27 @@
 local Config = require(script.Parent.Parent.Config)
 local Types = require(script.Parent.Parent.Types)
 
+-- set on map parts in Studio: a ledge only mantles with the first, and a face with the second is never a wall
+local MANTLEABLE_TAG = "Mantleable"
+local NO_WALL_TAG = "NoWall"
+
+local DROP_RAY = Vector3.new(0, -(Config.ROOT_HEIGHT + Config.LEDGE_LEAP_DROP), 0)
+
 local Probes = {}
 
 local params = RaycastParams.new()
-params.CollisionGroup = "MoveProbe"
-
-local DROP_RAY = Vector3.new(0, -(Config.ROOT_HEIGHT + Config.LEDGE_LEAP_DROP), 0)
+params.CollisionGroup = Config.PROBE_GROUP
 
 local function isWallFace(hit: RaycastResult): boolean
 	return math.abs(hit.Normal.Y) <= Config.WALL_MAX_NORMAL_Y and hit.Instance.Anchored
 end
 
 local function isMantleable(part: BasePart): boolean
-	if part:HasTag("Mantleable") then
+	if part:HasTag(MANTLEABLE_TAG) then
 		return true
 	end
 	local model = part:FindFirstAncestorOfClass("Model")
-	return model ~= nil and model:HasTag("Mantleable")
+	return model ~= nil and model:HasTag(MANTLEABLE_TAG)
 end
 
 -- a ray that starts inside a part never hits it, so a top above fromY is rejected for free
@@ -43,7 +47,7 @@ function Probes.wall(root: BasePart, speed: number, reach: number?): Types.WallH
 	for _, dir in { cf.LookVector, cf.RightVector, -cf.RightVector } do
 		local ray = dir * (reach or Config.WALL_REACH)
 		local hit = workspace:Raycast(cf.Position, ray, params)
-		if not hit or not isWallFace(hit) or hit.Instance:HasTag("NoWall") then
+		if not hit or not isWallFace(hit) or hit.Instance:HasTag(NO_WALL_TAG) then
 			continue
 		end
 
@@ -62,13 +66,13 @@ function Probes.wall(root: BasePart, speed: number, reach: number?): Types.WallH
 		local normal = Vector3.new(hit.Normal.X, 0, hit.Normal.Z).Unit
 		local look = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z).Unit
 		if -look:Dot(normal) >= Config.FACING_SPLIT then
-			return { kind = "Cling", normal = normal, part = hit.Instance }
+			return { kind = "Cling", normal = normal, part = hit.Instance, point = hit.Position }
 		elseif speed < Config.WALLRUN_MIN_SPEED then
 			return nil
 		end
 
 		local side: "Left" | "Right" = if cf.RightVector:Dot(-normal) > 0 then "Right" else "Left"
-		return { kind = "Run", side = side, normal = normal, part = hit.Instance }
+		return { kind = "Run", side = side, normal = normal, part = hit.Instance, point = hit.Position }
 	end
 
 	return nil

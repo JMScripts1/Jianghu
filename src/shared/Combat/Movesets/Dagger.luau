@@ -12,9 +12,11 @@ local LIGHT_RECOVERY = 17 / 60
 local LIGHT_STUN = 0.8
 
 local Dagger: Types.Moveset = {
+	hitType = "Slash",
 	light = {
 		{
 			anim = "rbxassetid://87060332838420",
+			swing = { fx = "SlashL", spin = 100, angle = "Horizontal" },
 			windup = LIGHT_WINDUP,
 			active = LIGHT_ACTIVE,
 			recovery = LIGHT_RECOVERY,
@@ -22,13 +24,16 @@ local Dagger: Types.Moveset = {
 		},
 		{
 			anim = "rbxassetid://131389170421490",
+			swing = { fx = "SlashR", spin = 100, angle = "Horizontal" },
 			windup = LIGHT_WINDUP,
 			active = LIGHT_ACTIVE,
 			recovery = LIGHT_RECOVERY,
 			stun = LIGHT_STUN,
+			hand = "Right",
 		},
 		{
 			anim = "rbxassetid://134208132284359",
+			swing = { fx = "SlashThrust", angle = "Horizontal" },
 			windup = LIGHT_WINDUP,
 			active = LIGHT_ACTIVE,
 			recovery = LIGHT_RECOVERY,
@@ -36,10 +41,15 @@ local Dagger: Types.Moveset = {
 		},
 		{
 			anim = "rbxassetid://85923627322840",
+			swing = {
+				fx = "SlashR",
+				at = CFrame.new(-0.309, 0.674, -0.635, -0.299, -0.95, 0.086, 0.954, -0.297, 0.027, 0, 0.091, 0.996),
+			},
 			windup = LIGHT_WINDUP,
 			active = LIGHT_ACTIVE,
 			recovery = LIGHT_RECOVERY,
 			stun = LIGHT_STUN,
+			hand = "Right",
 		},
 		-- the finisher, it knocks back unless delayed
 		{
@@ -51,6 +61,7 @@ local Dagger: Types.Moveset = {
 			posture = 15,
 			stun = 0.85,
 			knockback = 50,
+			swing = { fx = "SlashL", angle = "DiagonalRight" },
 		},
 	},
 	-- 83 frames, two swings. the first windup ends on frame 27 and its stab lands about 35 to 37, then the second
@@ -59,6 +70,8 @@ local Dagger: Types.Moveset = {
 	-- that holds the target for the second, which is the real crit
 	heavy = {
 		anim = "rbxassetid://70984112218280",
+		-- the reference's bisento thrust, brought in from its spear's reach
+		swing = { fx = "SlashThrust", at = CFrame.new(0.04, -0.389, -4) },
 		windup = 32 / 60,
 		delayAt = 22 / 60,
 		active = 6 / 60,
@@ -91,6 +104,7 @@ local Dagger: Types.Moveset = {
 	-- 39 frames, it lands about frame 21. it checks a few frames either side, the same way the lights do
 	launch = {
 		anim = "rbxassetid://80619691559159",
+		swing = { fx = "BluntSwipeR", at = CFrame.new(-0.152, 0.361, -1, -0.416, -0.909, 0, 0.909, -0.416, 0, 0, 0, 1) },
 		windup = 18 / 60,
 		active = 4 / 60,
 		recovery = 17 / 60,
@@ -99,6 +113,7 @@ local Dagger: Types.Moveset = {
 	-- over a full hold, so it starts that much early and a held slam sits at the top of its windup
 	slam = {
 		anim = "rbxassetid://139744136217190",
+		swing = { fx = "BluntSwipeL", at = CFrame.new(0, 0, -1.195, 0.157, -0.988, 0, 0.988, 0.157, 0, 0, 0, 1) },
 		windup = 22 / 60,
 		delayAt = 15 / 60,
 		active = 4 / 60,

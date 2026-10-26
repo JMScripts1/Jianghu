@@ -5,6 +5,12 @@
 return table.freeze({
 	DEBUG = false,
 
+	-- tags set in Studio or by the server, and the collision group every movement and hitbox ray is cast in so it only
+	-- ever sees the map, see Collision
+	BOT_TAG = "Bot",
+	DUMMY_TAG = "Dummy",
+	PROBE_GROUP = "MoveProbe",
+
 	WALK_SPEED = 14,
 	CROUCH_SPEED = 7,
 	RUN_SPEED = 22,
@@ -134,7 +140,11 @@ return table.freeze({
 	CROUCH_STEP_TIME = 0.5,
 	-- footsteps fade out to nothing by this distance
 	FOOTSTEP_RANGE = 80,
+	-- movement effects only play on characters this close to the camera. combat ones are sent within FX_RANGE
+	VFX_RANGE = 150,
 	ANIM_FADE = 0.1,
+	-- a held pose stops this close to its animation's end, two frames at 60 so a step never jumps past it
+	LAST_FRAME = 2 / 60,
 	-- attacks and guard poses sit far apart, and a longer blend swings the arm through the body between them
 	COMBAT_FADE = 0.03,
 	-- run animation speed through a running jump, back to 1 on landing

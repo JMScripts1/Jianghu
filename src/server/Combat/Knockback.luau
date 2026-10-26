@@ -25,7 +25,7 @@ local Knockback = {}
 local flights: { [Model]: Flight } = {}
 
 local params = RaycastParams.new()
-params.CollisionGroup = "MoveProbe"
+params.CollisionGroup = Config.PROBE_GROUP
 
 function Knockback.start(char: Model, root: BasePart, velocity: Vector3, now: number, mover: Instance?)
 	Knockback.stop(char)

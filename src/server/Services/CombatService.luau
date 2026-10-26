@@ -197,13 +197,21 @@ local function shove(target: Model, root: BasePart, from: BasePart, speed: numbe
 	end
 end
 
--- each client makes its own effects from these, the server never builds any
-local function fx(attacker: Model, target: Model, id: Types.AttackId, result: Types.HitResult)
+-- each client makes its own effects from these, the server never builds any. a wall or floor pin sends where its path
+-- met the surface, the one thing only the server knows
+local function fx(
+	attacker: Model,
+	target: Model,
+	id: Types.AttackId,
+	result: Types.CombatFx,
+	point: Vector3?,
+	normal: Vector3?
+)
 	local at = target:GetPivot().Position
 	for _, plr in Players:GetPlayers() do
 		local char = plr.Character
 		if char and (char:GetPivot().Position - at).Magnitude <= Config.FX_RANGE then
-			Remotes.CombatFx:FireClient(plr, attacker, target, id, result)
+			Remotes.CombatFx:FireClient(plr, attacker, target, id, result, point, normal)
 		end
 	end
 end
@@ -331,6 +339,8 @@ local function wallSlam(char: Model, hit: RaycastResult)
 	if not st or not root or st.combat.downed or now < st.combat.wallImmuneUntil then
 		return
 	end
+	-- before the damage, a slam that downs the body still hit the wall
+	fx(char, char, "", "WallSlam", hit.Position, hit.Normal)
 	local combat = st.combat
 	changePosture(char, -Config.WALL_POSTURE)
 	damage(char, st, Config.WALL_DAMAGE, true, now)
@@ -360,6 +370,7 @@ local function floorSlam(char: Model, hit: RaycastResult)
 	if not st or not root or st.combat.downed then
 		return
 	end
+	fx(char, char, "", "FloorSlam", hit.Position, hit.Normal)
 	st.combat.floorUntil = now + Config.SLAM_STUN
 	stun(st, st.combat.floorUntil)
 	active[char] = true
@@ -552,6 +563,8 @@ local function advance(char: Model, st: CharState, swing: Swing, now: number)
 		swing.delayedAt = reachedAt
 		st.combat.cooldownUntil[DELAY] = reachedAt + CombatDefs.cooldowns[DELAY]
 		NpcAnimator.slow(char, true)
+		-- the glint and charge a defender reads a delay by. a client's own parts never replicate, so it comes from here
+		fx(char, char, swing.id, "Delay")
 	end
 
 	local delayedAt = swing.delayedAt
@@ -762,8 +775,14 @@ local function step()
 		end
 		local queryAt = if swing then swing.nextQueryAt else nil
 		if swing and queryAt and now >= queryAt then
-			if queryAt == swing.hitAt and swing.lunge > 0 then
-				lunge(char, swing.lunge)
+			if queryAt == swing.hitAt then
+				if swing.lunge > 0 then
+					lunge(char, swing.lunge)
+				end
+				-- the arc it cuts, for everyone but the attacker's own client, which played it already
+				if AttackDefs[swing.id].swing then
+					fx(char, char, swing.id, "Swing")
+				end
 			end
 			query(char, st, swing, now)
 			local nextAt = queryAt + Config.ACTIVE_STEP

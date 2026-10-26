@@ -26,6 +26,8 @@ local STEP_TIMES: { [Types.MoveState]: number } = {
 }
 -- Idle and CrouchIdle share their wire with the walks, standing still is what keeps them silent
 local MIN_STEP_SPEED = 1
+-- a one shot whose id never loads never ends, so it's cleaned up after this anyway
+local ONE_SHOT_MAX = 10
 
 -- movement sounds for every character in range of hearing, played on its root so they come from where it happened
 local Sfx = {}
@@ -36,15 +38,9 @@ local function slot(state: Types.MoveState): Types.SoundName
 	return if MoveDefs[state].isDash then "Dash" else state
 end
 
--- a ground dash is airborne on paper and a mantle ends standing, neither is a landing you'd hear
-local function isLanding(from: Types.MoveState, to: Types.MoveState): boolean
-	local def = MoveDefs[from]
-	return MoveDefs[to].group == "Grounded" and def.group ~= "Grounded" and not def.isDash and from ~= "Mantle"
-end
-
 -- made once per character and kept on its root
 local function sound(root: BasePart, name: Types.SoundName): Sound?
-	local id = Sounds[name]
+	local id = Sounds.Movement[name]
 	if not id or id == "" then
 		return nil
 	end
@@ -76,7 +72,7 @@ local function footstep(root: BasePart, material: Enum.Material): Sound
 	return new
 end
 
-function Sfx.state(root: BasePart, from: Types.MoveState, to: Types.MoveState)
+function Sfx.state(root: BasePart, from: Types.MoveState, to: Types.MoveState, isLanding: boolean)
 	local left: Types.SoundName = slot(from)
 	if LOOPS[left] then
 		local loop = root:FindFirstChild(left)
@@ -85,7 +81,7 @@ function Sfx.state(root: BasePart, from: Types.MoveState, to: Types.MoveState)
 		end
 	end
 
-	if isLanding(from, to) then
+	if isLanding then
 		local land = sound(root, "Land")
 		if land then
 			land:Play()
@@ -95,6 +91,26 @@ function Sfx.state(root: BasePart, from: Types.MoveState, to: Types.MoveState)
 	if entered then
 		entered:Play()
 	end
+end
+
+-- played once where something happened and left behind, for a hit, a pin or a delay
+function Sfx.at(id: string, at: Vector3)
+	if id == "" then
+		return
+	end
+	local holder = Instance.new("Attachment")
+	holder.Position = at
+	local new = Instance.new("Sound")
+	new.SoundId = id
+	new.Parent = holder
+	holder.Parent = workspace.Terrain
+	new:Play()
+	new.Ended:Once(function()
+		holder:Destroy()
+	end)
+	task.delay(ONE_SHOT_MAX, function()
+		holder:Destroy()
+	end)
 end
 
 function Sfx.add(char: Model, root: BasePart, state: () -> Types.MoveState?)

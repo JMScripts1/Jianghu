@@ -12,9 +12,14 @@ local LIGHT_RECOVERY = 15 / 60
 local LIGHT_STUN = 0.8
 
 local Fist: Types.Moveset = {
+	hitType = "Blunt",
 	light = {
 		{
 			anim = "rbxassetid://105683870168935",
+			swing = {
+				fx = "BluntThrust",
+				at = CFrame.new(-0.122, 0.304, -0.73, 0.955, -0.298, 0, 0.298, 0.955, 0, 0, 0, 1),
+			},
 			windup = LIGHT_WINDUP,
 			active = LIGHT_ACTIVE,
 			recovery = LIGHT_RECOVERY,
@@ -22,6 +27,10 @@ local Fist: Types.Moveset = {
 		},
 		{
 			anim = "rbxassetid://132199108178634",
+			swing = {
+				fx = "BluntSwipeL",
+				at = CFrame.new(-0.122, 0.304, -0.73, -0.977, -0.214, 0, 0.214, -0.977, 0, 0, 0, 1),
+			},
 			windup = LIGHT_WINDUP,
 			active = LIGHT_ACTIVE,
 			recovery = LIGHT_RECOVERY,
@@ -29,6 +38,11 @@ local Fist: Types.Moveset = {
 		},
 		{
 			anim = "rbxassetid://85679270615646",
+			swing = {
+				fx = "BluntSwipeR",
+				at = CFrame.new(-0.122, 0.304, -0.73)
+					* CFrame.fromOrientation(math.rad(-3.841), math.rad(165.489), math.rad(-149.512)),
+			},
 			windup = LIGHT_WINDUP,
 			active = LIGHT_ACTIVE,
 			recovery = LIGHT_RECOVERY,
@@ -36,6 +50,10 @@ local Fist: Types.Moveset = {
 		},
 		{
 			anim = "rbxassetid://83303322568088",
+			swing = {
+				fx = "BluntThrust",
+				at = CFrame.new(-0.122, 0.304, -0.73, -0.977, -0.214, 0, 0.214, -0.977, 0, 0, 0, 1),
+			},
 			windup = LIGHT_WINDUP,
 			active = LIGHT_ACTIVE,
 			recovery = LIGHT_RECOVERY,
@@ -44,6 +62,10 @@ local Fist: Types.Moveset = {
 		-- the finisher, it knocks back unless delayed
 		{
 			anim = "rbxassetid://78930044990625",
+			swing = {
+				fx = "BluntThrust",
+				at = CFrame.new(0.007, 0.525, -1, 0.541, -0.841, 0, 0.841, 0.541, 0, 0, 0, 1),
+			},
 			windup = LIGHT_WINDUP,
 			active = LIGHT_ACTIVE,
 			recovery = LIGHT_RECOVERY,
@@ -58,6 +80,7 @@ local Fist: Types.Moveset = {
 	-- lunge pushes forward at that many studs a second for LUNGE_TIME, starting at the hit
 	heavy = {
 		anim = "rbxassetid://108120316811300",
+		swing = { fx = "BluntThrust", at = CFrame.new(0.138, 0.418, -3.544) },
 		windup = 35 / 60,
 		delayAt = 0.3,
 		active = 4 / 60,
@@ -77,6 +100,7 @@ local Fist: Types.Moveset = {
 	-- 39 frames, it lands about frame 21. it checks a few frames either side, the same way the lights do
 	launch = {
 		anim = "rbxassetid://80619691559159",
+		swing = { fx = "BluntSwipeR", at = CFrame.new(-0.152, 0.361, -1, -0.416, -0.909, 0, 0.909, -0.416, 0, 0, 0, 1) },
 		windup = 18 / 60,
 		active = 4 / 60,
 		recovery = 17 / 60,
@@ -85,6 +109,7 @@ local Fist: Types.Moveset = {
 	-- over a full hold, so it starts that much early and a held slam sits at the top of its windup
 	slam = {
 		anim = "rbxassetid://139744136217190",
+		swing = { fx = "BluntSwipeL", at = CFrame.new(0, 0, -1.195, 0.157, -0.988, 0, 0.988, 0.157, 0, 0, 0, 1) },
 		windup = 22 / 60,
 		delayAt = 15 / 60,
 		active = 4 / 60,

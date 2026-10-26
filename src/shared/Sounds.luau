@@ -4,7 +4,7 @@
 local Types = require(script.Parent.Types)
 
 -- an empty id is a slot with no sound yet, it plays nothing
-local Sounds: { [Types.SoundName]: string } = {
+local Movement: { [Types.SoundName]: string } = {
 	Jump = "",
 	DoubleJump = "rbxassetid://113971697134227",
 	SlideJump = "",
@@ -19,4 +19,36 @@ local Sounds: { [Types.SoundName]: string } = {
 	Mantle = "",
 }
 
-return table.freeze(Sounds)
+-- from the attacking weapon's hit type, the same split as the effects in assets/Vfx.rbxm
+local Hits: { [Types.HitType]: { [Types.HitFx]: string } } = {
+	Blunt = {
+		Hit = "",
+		HeavyHit = "",
+		Block = "",
+		Parry = "",
+	},
+	Slash = {
+		Hit = "",
+		HeavyHit = "",
+		Block = "",
+		Parry = "",
+	},
+}
+
+-- Delay is the charge a held swing makes
+local Shared: { [Types.SharedFx]: string } = {
+	Break = "",
+	WallSlam = "",
+	FloorSlam = "",
+	Delay = "",
+}
+
+for _, sounds in Hits do
+	table.freeze(sounds)
+end
+
+return table.freeze({
+	Movement = table.freeze(Movement),
+	Hits = table.freeze(Hits),
+	Shared = table.freeze(Shared),
+})
