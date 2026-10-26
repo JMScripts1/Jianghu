@@ -19,6 +19,8 @@ type Npc = {
 	-- the rate the swing plays at, its weapon's speed
 	swingSpeed: number,
 	looping: AnimationTrack?,
+	-- the loop is a pin's pose, held on its last frame, see step
+	isPosing: boolean,
 	oneShot: AnimationTrack?,
 	-- which of a reaction's animations played last
 	turns: { [Types.Reaction]: number },
@@ -27,10 +29,13 @@ type Npc = {
 
 -- being hit cuts the swing short, the same states CombatController cancels its own on
 local CUTS_SWING: { [Types.CombatState]: true } =
-	{ Stunned = true, PostureBroken = true, WallStunned = true, Downed = true }
+	{ Stunned = true, PostureBroken = true, WallStunned = true, FloorStunned = true, Downed = true }
 
--- a pin holds its own pose, so it cuts a one shot still playing, like the knockback's, and none plays over it
-local HOLDS_POSE: { [Types.CombatState]: true } = { WallStunned = true }
+-- a pin holds its own pose, so it cuts a one shot still playing, like the knockback's, and none plays over it. the
+-- pose stops on its last frame, so an animation shorter than the pin still covers all of it
+local HOLDS_POSE: { [Types.CombatState]: true } = { WallStunned = true, FloorStunned = true }
+-- two frames at 60, a step never jumps past it
+local LAST_FRAME = 2 / 60
 
 local NpcAnimator = {}
 
@@ -78,7 +83,8 @@ local function onState(char: Model)
 		stop(npc.swinging)
 		npc.swinging = nil
 	end
-	if HOLDS_POSE[state] then
+	npc.isPosing = HOLDS_POSE[state] == true
+	if npc.isPosing then
 		stop(npc.oneShot)
 		npc.oneShot = nil
 	end
@@ -104,6 +110,7 @@ function NpcAnimator.add(char: Model, hum: Humanoid)
 		animator = animator,
 		tracks = {},
 		swingSpeed = 1,
+		isPosing = false,
 		turns = {},
 		conn = char:GetAttributeChangedSignal("CombatState"):Connect(function()
 			onState(char)
@@ -160,6 +167,15 @@ function NpcAnimator.react(char: Model, name: Types.Reaction)
 		stop(npc.oneShot)
 		npc.oneShot = t
 		t:Play(Config.COMBAT_FADE)
+	end
+end
+
+function NpcAnimator.step()
+	for _, npc in npcs do
+		local t = npc.looping
+		if npc.isPosing and t and t.Length > 0 and t.TimePosition >= t.Length - LAST_FRAME then
+			t:AdjustSpeed(0)
+		end
 	end
 end
 

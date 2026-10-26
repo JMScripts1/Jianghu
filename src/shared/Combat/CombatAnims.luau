@@ -13,6 +13,8 @@ local CombatAnims: { [Types.Reaction]: Types.ReactionAnims } = {
 	PostureBroken = "rbxassetid://73458919455147",
 	-- one frame, held for the whole pin
 	WallStunned = "rbxassetid://131370184693501",
+	-- 25 frames, its last one held for the rest of the pin
+	FloorStunned = "rbxassetid://115967311266415",
 	-- a downed character is a ragdoll, see Ragdoll
 	Downed = "",
 	-- the generic pose a grip holds a downed body in, see GripSpec

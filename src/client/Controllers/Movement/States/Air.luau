@@ -49,8 +49,12 @@ function Air.land(c: Ctx): Types.MoveState?
 	if c.root.AssemblyLinearVelocity.Y > RISING or not Probes.ground(c.root) then
 		return nil
 	end
-	if InputController.isDown("Crouch") and Ground.canSlide(c) then
-		return "Slide"
+	-- crouch on at landing is for the landing slide, it never leaves the body crouched
+	if InputController.isDown("Crouch") then
+		if Ground.canSlide(c) then
+			return "Slide"
+		end
+		InputController.uncrouch()
 	end
 	return Ground.pick(c)
 end
@@ -119,7 +123,7 @@ function Air.update(c: Ctx, dt: number): Types.MoveState?
 		end
 	end
 
-	-- a ledge in reach wins over a wall, and a wall over the air jump
+	-- a ledge in reach wins over a wall, and a wall over the air jump. in a juggle jump is held for the slam instead
 	if InputController.take("Jump") then
 		if Mantle.findLedge(c) then
 			return "Mantle"
@@ -127,7 +131,7 @@ function Air.update(c: Ctx, dt: number): Types.MoveState?
 		local wall: Types.MoveState? = Air.wall(c)
 		if wall then
 			return wall
-		elseif c.airJumps < Config.MAX_AIR_JUMPS then
+		elseif c.airJumps < Config.MAX_AIR_JUMPS and not c.isHeldUp then
 			return "DoubleJump"
 		end
 	end

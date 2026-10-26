@@ -3,6 +3,7 @@
 -- MIT licensed, see LICENSE. Feel free to remove this header.
 local Players = game:GetService("Players")
 
+local Collision = require(script.Parent.Parent.Collision)
 local CombatService = require(script.Parent.CombatService)
 local MovementService = require(script.Parent.MovementService)
 local StateService = require(script.Parent.StateService)
@@ -12,6 +13,7 @@ local CharacterService = {}
 -- every character comes in and goes out through here, players and NPCs alike, so the services always set up in the
 -- same order and tear down in reverse
 function CharacterService.add(char: Model)
+	Collision.add(char)
 	StateService.add(char)
 	MovementService.add(char)
 	CombatService.add(char)

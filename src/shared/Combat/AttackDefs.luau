@@ -87,6 +87,48 @@ local AIR: Types.AttackDef = {
 	isHeavyStun = false,
 }
 
+-- the stun lasts through the rise and the swing up after it, so the first hit in the air connects
+local LAUNCH: Types.AttackDef = {
+	anim = "",
+	speed = 1,
+	windup = 0.3,
+	active = 0,
+	recovery = 0.3,
+	damage = 5,
+	posture = 10,
+	chip = 0,
+	stun = 0.9,
+	box = Vector3.new(5, 7, 6),
+	lunge = 20,
+	canParry = true,
+	canBlock = true,
+	canDodge = true,
+	isGuardBreak = false,
+	isHeavyStun = false,
+}
+
+-- taller than a light, the target is often under it. its knockback goes down at SLAM_ANGLE, see CombatService
+local SLAM: Types.AttackDef = {
+	anim = "",
+	speed = 1,
+	windup = 0.35,
+	delayAt = 0.15,
+	active = 0,
+	recovery = 0.15,
+	damage = 6,
+	posture = 15,
+	chip = 0,
+	stun = 0.8,
+	box = Vector3.new(5, 9, 6),
+	lunge = 30,
+	knockback = 80,
+	canParry = true,
+	canBlock = true,
+	canDodge = true,
+	isGuardBreak = false,
+	isHeavyStun = false,
+}
+
 -- the weapon's stats go in here, so every number downstream is already that weapon's own.
 -- booleans go through ~= nil, `or` would turn a false back into the kind's true
 local function build(kind: Types.AttackDef, spec: Types.AttackSpec, weapon: Types.WeaponDef): Types.AttackDef
@@ -151,6 +193,8 @@ for _, weapon in WeaponDefs do
 	add(weapon.heavy, 1, HEAVY, moveset.heavy, weapon)
 	add(weapon.run, 1, RUN, moveset.run, weapon)
 	add(weapon.air, 1, AIR, moveset.air, weapon)
+	add(weapon.launch, 1, LAUNCH, moveset.launch, weapon)
+	add(weapon.slam, 1, SLAM, moveset.slam, weapon)
 end
 
 for id, def in AttackDefs do

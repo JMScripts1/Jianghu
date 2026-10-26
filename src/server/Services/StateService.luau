@@ -72,6 +72,12 @@ export type CharState = {
 		-- pinned to a wall until this, and no new pin until wallImmuneUntil, see CombatService.slam
 		wallUntil: number,
 		wallImmuneUntil: number,
+		-- pinned to the floor by a slam until this, see CombatService.floorSlam
+		floorUntil: number,
+		-- held in the air by a juggle until this, as attacker or target, see Juggle
+		juggleUntil: number,
+		-- hits in a row on this body in a juggle, see CombatService.resolve
+		juggleHits: number,
 		parryUntil: number,
 		-- where the parry window opened by the player's own screen, see Ping. parryUntil is the state, this is what a hit
 		-- is judged against
@@ -140,6 +146,9 @@ function StateService.add(char: Model)
 			brokenUntil = 0,
 			wallUntil = 0,
 			wallImmuneUntil = 0,
+			floorUntil = 0,
+			juggleUntil = 0,
+			juggleHits = 0,
 			parryUntil = 0,
 			parryFrom = 0,
 			cooldownUntil = {},
@@ -220,6 +229,8 @@ function StateService.combatState(char: Model): Types.CombatState
 		return "PostureBroken"
 	elseif now < combat.wallUntil then
 		return "WallStunned"
+	elseif now < combat.floorUntil then
+		return "FloorStunned"
 	elseif now < combat.parryUntil then
 		return "Parrying"
 	elseif now < combat.stunnedUntil then

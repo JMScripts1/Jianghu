@@ -52,6 +52,11 @@ function InputController.take(action: Action): boolean
 	return was
 end
 
+-- crouch is a toggle, so whatever ends a crouch other than the key turns it off here
+function InputController.uncrouch()
+	held[CROUCH] = nil
+end
+
 -- a press nothing took this step is dropped, not kept for later
 function InputController.flush()
 	table.clear(pressed)

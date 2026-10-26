@@ -28,6 +28,8 @@ export type DashRun = {
 	-- the back dash keeps the direction it started in, and boostedAt is set by its animation's Boost marker
 	back: Vector3?,
 	boostedAt: number?,
+	-- every speed is this times its usual one, shorter inside a juggle so it can get round the target
+	scale: number,
 }
 
 export type MantleRun = {
@@ -45,6 +47,8 @@ export type Ctx = {
 	attach: Attachment,
 	lv: LinearVelocity,
 	align: AlignOrientation,
+	-- holds height through a juggle, the up axis only, see CombatController
+	hold: AlignPosition,
 	trove: Trove,
 
 	state: Types.MoveState,
@@ -68,6 +72,8 @@ export type Ctx = {
 	usedAt: { [Types.MoveState]: number },
 	-- the slide's floor along its heading, see Probes.slope
 	slope: number,
+	-- a juggle is holding the body up, set by CombatController each step
+	isHeldUp: boolean,
 	isRampLeap: boolean,
 	lean: Vector2,
 	leanBase: CFrame,
@@ -115,6 +121,17 @@ function Context.new(char: Model): Ctx
 	align.Parent = root
 	trove:Add(align)
 
+	local hold = Instance.new("AlignPosition")
+	hold.Mode = Enum.PositionAlignmentMode.OneAttachment
+	hold.Attachment0 = attach
+	hold.ForceLimitMode = Enum.ForceLimitMode.PerAxis
+	hold.MaxAxesForce = Vector3.new(0, Config.JUGGLE_FORCE, 0)
+	hold.MaxVelocity = Config.LAUNCH_RISE / Config.LAUNCH_TIME
+	hold.Responsiveness = Config.JUGGLE_RESPONSIVENESS
+	hold.Enabled = false
+	hold.Parent = root
+	trove:Add(hold)
+
 	return {
 		char = char,
 		hum = hum,
@@ -123,6 +140,7 @@ function Context.new(char: Model): Ctx
 		attach = attach,
 		lv = lv,
 		align = align,
+		hold = hold,
 		trove = trove,
 
 		state = "Idle",
@@ -141,6 +159,7 @@ function Context.new(char: Model): Ctx
 		repeats = {},
 		usedAt = {},
 		slope = 0,
+		isHeldUp = false,
 		isRampLeap = false,
 		lean = Vector2.zero,
 		leanBase = CFrame.identity,

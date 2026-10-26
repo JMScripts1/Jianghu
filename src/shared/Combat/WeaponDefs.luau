@@ -105,6 +105,8 @@ for weapon: Types.WeaponId, row in rows do
 		heavy = `{weapon}_heavy`,
 		run = `{weapon}_run`,
 		air = `{weapon}_air`,
+		launch = `{weapon}_launch`,
+		slam = `{weapon}_slam`,
 		reactions = reactions,
 		grip = grip,
 		movement = movement,

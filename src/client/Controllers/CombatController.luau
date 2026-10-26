@@ -46,11 +46,21 @@ local LIGHT: Types.CombatCooldown = "Light"
 local GRIP: Types.CombatAction = "Grip"
 
 -- being hit can't be predicted, these only ever come from the server
-local FROM_SERVER: { [Types.CombatState]: true } =
-	{ Stunned = true, PostureBroken = true, WallStunned = true, Downed = true, Gripping = true, Gripped = true }
+local FROM_SERVER: { [Types.CombatState]: true } = {
+	Stunned = true,
+	PostureBroken = true,
+	WallStunned = true,
+	FloorStunned = true,
+	Downed = true,
+	Gripping = true,
+	Gripped = true,
+}
 
--- a pin holds its own pose, so it cuts a one shot still playing, like the knockback's, and none plays over it
-local HOLDS_POSE: { [Types.CombatState]: true } = { WallStunned = true }
+-- a pin holds its own pose, so it cuts a one shot still playing, like the knockback's, and none plays over it. the
+-- pose stops on its last frame, so an animation shorter than the pin still covers all of it
+local HOLDS_POSE: { [Types.CombatState]: true } = { WallStunned = true, FloorStunned = true }
+-- two frames at 60, a step never jumps past it
+local LAST_FRAME = 2 / 60
 
 local SPEED_CAPS: { [Types.CombatState]: number } = {
 	Attacking = Config.ATTACK_WALK_SPEED,
@@ -59,6 +69,7 @@ local SPEED_CAPS: { [Types.CombatState]: number } = {
 	Stunned = Config.STUN_WALK_SPEED,
 	PostureBroken = 0,
 	WallStunned = 0,
+	FloorStunned = 0,
 	Downed = 0,
 	Gripping = 0,
 	Gripped = 0,
@@ -87,6 +98,8 @@ local oneShot: AnimationTrack? = nil
 
 local swing: Swing? = nil
 local isQueued = false
+-- what the buffered press was, a light or the slam
+local queuedAction: Types.CombatAction = "Light"
 -- a swap starts the string over on the server, so it does here too
 local equipped: Types.WeaponId? = nil
 local combo = 0
@@ -105,6 +118,13 @@ local isRooted = false
 local push: Push? = nil
 -- where the server put this body against a wall, set on the next step
 local pinAt: CFrame? = nil
+-- held in the air by a juggle until this. riseUntil lets the hold work off the ground while the uppercut lifts, see Juggle
+local juggleUntil = 0
+local riseUntil = 0
+-- a rise the server asked for, taken on the next step where the body's height is known
+local pendingRise: number? = nil
+-- the height the juggle settled at, read on its first held step
+local holdY: number? = nil
 -- from CombatFx, played on the next step
 local pending: Types.Reaction? = nil
 -- which of a reaction's animations played last
@@ -181,6 +201,7 @@ local function attack(c: Ctx, action: Types.CombatAction, button: InputControlle
 		combo,
 		now - comboAt,
 		hasAirAttacked,
+		now < juggleUntil,
 		function(name: Types.CombatCooldown): boolean
 			return now >= (cooldownUntil[name] or 0)
 		end
@@ -195,6 +216,9 @@ local function attack(c: Ctx, action: Types.CombatAction, button: InputControlle
 	end
 	if picked.kind == "Air" then
 		hasAirAttacked = true
+	elseif picked.kind == "Launch" then
+		-- the uppercut stands up out of the crouch it came from, a whiff leaves the body standing
+		InputController.uncrouch()
 	end
 
 	local def = AttackDefs[id]
@@ -244,6 +268,11 @@ local function follow(current: Swing, id: Types.AttackId)
 end
 
 -- the swing's end is what the next light's combo counts from, and a light pressed near it starts right then
+-- in the air by its move state, or held there by a juggle
+local function isAloft(c: Ctx, now: number): boolean
+	return now < juggleUntil or MoveDefs[c.state].group == "Airborne"
+end
+
 local function settle(c: Ctx, now: number)
 	local current = swing
 	if not current or now < current.endsAt then
@@ -256,12 +285,13 @@ local function settle(c: Ctx, now: number)
 	end
 	swing = nil
 	comboAt = current.endsAt
-	if CombatDefs.isFinisher(weaponOf(c), current.id) then
+	-- in the air the string runs on, see CombatService.resolve
+	if CombatDefs.isFinisher(weaponOf(c), current.id) and not isAloft(c, now) then
 		cooldownUntil[LIGHT] = current.endsAt + CombatDefs.cooldowns[LIGHT]
 	end
 	if isQueued then
 		isQueued = false
-		attack(c, "Light", "Light", now)
+		attack(c, queuedAction, "Light", now)
 	end
 end
 
@@ -353,15 +383,47 @@ local function move(c: Ctx, now: number)
 		c.root.AssemblyLinearVelocity = Vector3.new(v.X, 0, v.Z)
 	end
 
+	-- a push with height, the slam's, drives the fall too
 	local p = push
 	if p and now < p.untilAt then
-		Context.glide(c, p.velocity)
+		if p.velocity.Y == 0 then
+			Context.glide(c, p.velocity)
+		else
+			Context.drive(c, p.velocity)
+		end
 	elseif p then
 		push = nil
 		-- a dash out of a block owns the mover by now
 		if not MoveDefs[c.state].isDash then
 			c.lv.Enabled = false
 		end
+	end
+
+	-- the uppercut moves the hold up by its rise, then a juggle keeps the body at that height with the hold mover,
+	-- which a lunge into the target can't push past. the rise works from the ground, after it only in Fall or a dash,
+	-- so a dash round the target stays level and a jump or a wall takes over. so does the slam's push
+	local rise = pendingRise
+	if rise then
+		pendingRise = nil
+		holdY = c.root.Position.Y + rise
+		riseUntil = now + Config.LAUNCH_TIME
+	end
+	if now >= juggleUntil then
+		holdY = nil
+	end
+	local isDriven = push ~= nil and (push :: Push).velocity.Y ~= 0
+	local isHolding = now < juggleUntil
+		and (now < riseUntil or c.state == "Fall" or MoveDefs[c.state].isDash)
+		and not isDriven
+	if isHolding and not holdY then
+		holdY = c.root.Position.Y
+	end
+	local y = holdY
+	if isHolding and y then
+		c.hold.Position = Vector3.new(0, y, 0)
+	end
+	if c.hold.Enabled ~= isHolding then
+		c.hold.Enabled = isHolding
 	end
 end
 
@@ -372,6 +434,9 @@ local function react(c: Ctx)
 	local id = if ids then ids[1] else nil
 	local track = if id then tracks[id] else nil
 	if track == reacting then
+		if track and HOLDS_POSE[current] and track.Length > 0 and track.TimePosition >= track.Length - LAST_FRAME then
+			track:AdjustSpeed(0)
+		end
 		return
 	end
 	if reacting then
@@ -416,7 +481,7 @@ end
 local function body(c: Ctx)
 	local server: Types.CombatState = serverState(c)
 	local isDowned = server == "Downed"
-	local isHeld = server == "Gripping" or server == "Gripped" or server == "WallStunned"
+	local isHeld = server == "Gripping" or server == "Gripped" or server == "WallStunned" or server == "FloorStunned"
 	local isBroken = server == "PostureBroken"
 	if isDowned == isRagdolled and isHeld == isAnchored and isBroken == isRooted then
 		return
@@ -467,6 +532,10 @@ function CombatController.load(c: Ctx)
 	isRooted = false
 	push = nil
 	pinAt = nil
+	juggleUntil = 0
+	riseUntil = 0
+	pendingRise = nil
+	holdY = nil
 
 	local animator = c.hum:WaitForChild("Animator") :: Animator
 	local function loadTrack(id: string)
@@ -514,14 +583,22 @@ function CombatController.step(c: Ctx): boolean
 		combo = 0
 	end
 	settle(c, now)
+	c.isHeldUp = now < juggleUntil
 
+	-- with jump held in a juggle it's the slam, anywhere else just a light
 	if InputController.take("Light") then
 		local current = swing
+		local action: Types.CombatAction = if InputController.isDown("Jump")
+				and MoveDefs[c.state].group == "Airborne"
+				and now < juggleUntil
+			then "Slam"
+			else "Light"
 		if not current then
-			attack(c, "Light", "Light", now)
+			attack(c, action, "Light", now)
 		-- a strike with a follow isn't really ending, so the buffer waits for the last one
 		elseif current.endsAt - now <= Config.INPUT_BUFFER and not AttackDefs[current.id].follow then
 			isQueued = true
+			queuedAction = action
 		end
 	end
 	if InputController.take("Heavy") then
@@ -573,8 +650,17 @@ Remotes.Knockback.OnClientEvent:Connect(function(dir: Vector3, speed: number)
 	push = { velocity = dir * speed, untilAt = os.clock() + Config.KNOCKBACK_TIME }
 end)
 
--- the server follows the knockback's path and tells the victim where it hit a wall, see CombatService.slam
-Remotes.WallSlam.OnClientEvent:Connect(function(pose: CFrame)
+-- the server holds both fighters in a juggle, see Juggle. a rise throws the body up first, and 0 for both lets go
+Remotes.Juggle.OnClientEvent:Connect(function(rise: number, duration: number)
+	local now = os.clock()
+	juggleUntil = now + duration
+	if rise > 0 then
+		pendingRise = rise
+	end
+end)
+
+-- the server follows the knockback's path and tells the victim where it hit a wall or the floor, see CombatService
+Remotes.Pin.OnClientEvent:Connect(function(pose: CFrame)
 	pinAt = pose
 end)
 

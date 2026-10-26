@@ -219,6 +219,25 @@ return table.freeze({
 	COMBO_RESET = 0.4,
 	-- no light for this long after a string's last hit ends, so it can't be mashed straight back into the first
 	STRING_ENDLAG = 0.4,
+	-- the uppercut throws both fighters LAUNCH_RISE up over LAUNCH_TIME, and a juggle holds them there for JUGGLE_HOLD
+	-- after each hit
+	LAUNCH_COOLDOWN = 4,
+	LAUNCH_RISE = 15,
+	LAUNCH_TIME = 0.25,
+	JUGGLE_HOLD = 1.5,
+	-- the nth hit in a row on a juggled body stuns for JUGGLE_DECAY / n of its stun, capped at all of it
+	JUGGLE_DECAY = 1.5,
+	-- a juggle holds height with an AlignPosition this strong on the up axis only, like the reference's BodyPosition, so
+	-- a lunge into the target can't ride the body up over it. it closes at no more than the rise's speed
+	JUGGLE_FORCE = 1e6,
+	JUGGLE_RESPONSIVENESS = 50,
+	-- every dash inside a juggle goes this share of its usual speed, far enough to get behind the target
+	JUGGLE_DASH_SCALE = 0.6,
+	-- degrees under flat the slam drives its target down at. landing pins it for SLAM_STUN, and a delayed slam does up
+	-- to SLAM_DELAY_DAMAGE more of its damage, all of it at DELAY_FULL of hold
+	SLAM_ANGLE = 60,
+	SLAM_STUN = 2.5,
+	SLAM_DELAY_DAMAGE = 0.5,
 	HEAVY_COOLDOWN = 3,
 	-- a light pressed this close to the end of a swing is sent when it ends
 	INPUT_BUFFER = 0.2,

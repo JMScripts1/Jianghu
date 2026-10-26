@@ -1,12 +1,12 @@
 --!strict
 -- Jianghu by Ruha.luau (github.com/JMScripts1)
 -- MIT licensed, see LICENSE. Feel free to remove this header.
-local PhysicsService = game:GetService("PhysicsService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.Config)
 local Probes = require(ReplicatedStorage.Shared.Movement.Probes)
+local Collision = require(script.Parent.Parent.Collision)
 
 type Joint = {
 	motor: string,
@@ -20,9 +20,6 @@ type Joint = {
 
 type Rig = { motors: { Motor6D }, sockets: { BallSocketConstraint }, colliders: { BasePart } }
 
-local GROUP = "Ragdoll"
-local CHAR_GROUP = "Characters"
-local PROBE_GROUP = "MoveProbe"
 -- a little under the limb, so it never catches on the torso it hangs from
 local COLLIDER_SCALE = 0.6
 local HIP = 40
@@ -140,7 +137,7 @@ function Ragdoll.set(char: Model, isOn: boolean)
 	end
 	for _, collider in rig.colliders do
 		collider.CanCollide = isOn
-		collider.CollisionGroup = if isOn then GROUP else CHAR_GROUP
+		collider.CollisionGroup = if isOn then "Ragdoll" else Collision.groupOf(char)
 	end
 	if not isOn then
 		stand(char, root)
@@ -154,16 +151,6 @@ function Ragdoll.set(char: Model, isOn: boolean)
 	if isOn then
 		root:ApplyAngularImpulse(root.CFrame.RightVector * Config.RAGDOLL_TIP)
 	end
-end
-
--- the limbs land on the map, but never on their own torso, each other or other characters
-for _, name in { GROUP, CHAR_GROUP, PROBE_GROUP } do
-	if not PhysicsService:IsCollisionGroupRegistered(name) then
-		PhysicsService:RegisterCollisionGroup(name)
-	end
-end
-for _, other in { GROUP, CHAR_GROUP, PROBE_GROUP } do
-	PhysicsService:CollisionGroupSetCollidable(GROUP, other, false)
 end
 
 return Ragdoll

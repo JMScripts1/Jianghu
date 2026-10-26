@@ -155,8 +155,9 @@ function MovementController.request(to: Types.MoveState): boolean
 end
 
 local function step(c: Ctx, dt: number)
-	-- the split cooldowns let a side dash chain into a front one, but only on the ground. the air gets one dash
-	if InputController.take("Dash") and not c.hasAirDashed then
+	-- the split cooldowns let a side dash chain into a front one, but only on the ground. the air gets one dash, except
+	-- inside a juggle
+	if InputController.take("Dash") and (not c.hasAirDashed or c.isHeldUp) then
 		MovementController.request(InputController.dash())
 	end
 	-- right mouse ends a dash early so a swing can start sooner. left and back dashes roll out left, the rest right

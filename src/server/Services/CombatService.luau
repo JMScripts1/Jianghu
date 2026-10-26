@@ -8,10 +8,12 @@ local RunService = game:GetService("RunService")
 local AttackDefs = require(ReplicatedStorage.Shared.Combat.AttackDefs)
 local CombatDefs = require(ReplicatedStorage.Shared.Combat.CombatDefs)
 local Config = require(ReplicatedStorage.Shared.Config)
+local MoveDefs = require(ReplicatedStorage.Shared.Movement.MoveDefs)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local Types = require(ReplicatedStorage.Shared.Types)
 local Grip = require(script.Parent.Parent.Combat.Grip)
 local Hitbox = require(script.Parent.Parent.Combat.Hitbox)
+local Juggle = require(script.Parent.Parent.Combat.Juggle)
 local Knockback = require(script.Parent.Parent.Combat.Knockback)
 local NpcAnimator = require(script.Parent.Parent.Combat.NpcAnimator)
 local Ping = require(script.Parent.Parent.Combat.Ping)
@@ -43,6 +45,7 @@ local ACTIONS: { [string]: Types.CombatAction } = {
 	Block = "Block",
 	Unblock = "Unblock",
 	Grip = "Grip",
+	Slam = "Slam",
 }
 
 local CombatService = {}
@@ -76,6 +79,7 @@ local function down(char: Model, st: CharState, now: number)
 	combat.parryUntil = 0
 	combat.parryFrom = 0
 	active[char] = true
+	Juggle.release(char, st)
 	Ragdoll.set(char, true)
 end
 
@@ -112,6 +116,11 @@ local function stun(st: CharState, untilTime: number)
 	combat.parryFrom = 0
 end
 
+-- in the air by its move state, or held there by a juggle
+local function isAloft(char: Model, st: CharState, now: number): boolean
+	return now < st.combat.juggleUntil or MoveDefs[StateService.current(char)].group == "Airborne"
+end
+
 -- judged against where the window opened on the player's own screen, see Ping
 local function isInParry(st: CharState, at: number): boolean
 	return at >= st.combat.parryFrom and at < st.combat.parryFrom + Config.PARRY_WINDOW
@@ -127,7 +136,8 @@ local function isFront(target: BasePart, attacker: BasePart): boolean
 	return Vector3.new(look.X, 0, look.Z).Unit:Dot(flatTo.Unit) >= Config.GUARD_FACING
 end
 
--- the server owns NPCs, so it pushes them itself. the mover only lives as long as the push
+-- the server owns NPCs, so it pushes them itself. the mover only lives as long as the push. a flat push leaves the
+-- fall alone, one with height drives it too
 local function push(root: BasePart, velocity: Vector3, duration: number): Attachment
 	local attach = Instance.new("Attachment")
 	attach.Parent = root
@@ -135,10 +145,15 @@ local function push(root: BasePart, velocity: Vector3, duration: number): Attach
 	local mover = Instance.new("LinearVelocity")
 	mover.Attachment0 = attach
 	mover.RelativeTo = Enum.ActuatorRelativeTo.World
-	mover.VelocityConstraintMode = Enum.VelocityConstraintMode.Plane
-	mover.PrimaryTangentAxis = Vector3.xAxis
-	mover.SecondaryTangentAxis = Vector3.zAxis
-	mover.PlaneVelocity = Vector2.new(velocity.X, velocity.Z)
+	if velocity.Y == 0 then
+		mover.VelocityConstraintMode = Enum.VelocityConstraintMode.Plane
+		mover.PrimaryTangentAxis = Vector3.xAxis
+		mover.SecondaryTangentAxis = Vector3.zAxis
+		mover.PlaneVelocity = Vector2.new(velocity.X, velocity.Z)
+	else
+		mover.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+		mover.VectorVelocity = velocity
+	end
 	mover.MaxForce = PUSH_FORCE
 	mover.Parent = attach
 
@@ -149,10 +164,11 @@ local function push(root: BasePart, velocity: Vector3, duration: number): Attach
 end
 
 -- a player's own client moves its character, so the server can only exempt it and ask it to fly. either way the
--- server follows the path itself for a wall, see Knockback
-local function knockback(target: Model, root: BasePart, from: BasePart, speed: number, now: number)
+-- server follows the path itself for a wall and the floor, see Knockback. drop angles it down, for the slam
+local function knockback(target: Model, root: BasePart, from: BasePart, speed: number, now: number, drop: number)
 	local look = from.CFrame.LookVector
-	local dir = Vector3.new(look.X, 0, look.Z).Unit
+	local flat = Vector3.new(look.X, 0, look.Z).Unit
+	local dir = flat * math.cos(drop) - Vector3.yAxis * math.sin(drop)
 	local plr = Players:GetPlayerFromCharacter(target)
 	local mover: Attachment? = nil
 	if plr then
@@ -255,21 +271,38 @@ local function resolve(
 	end
 
 	-- a delayed hit can't be parried out of, and stuns longer the longer it was held
-	local bonus = if swing.isDelayed then Config.DELAY_STUN * math.min(1, swing.held / Config.DELAY_FULL) else 0
-	stun(st, now + def.stun + bonus)
+	local hold = if swing.isDelayed then math.min(1, swing.held / Config.DELAY_FULL) else 0
+	local bonus = Config.DELAY_STUN * hold
+	-- the reference's diminishing returns made gentler in the air (R7.5): each hit in a row on a juggled body stuns
+	-- for JUGGLE_DECAY over its count of the full stun, so a juggle soon leaves a gap to parry out of. it counts from 1
+	-- again once the body was free
+	local scale = 1
+	if now < combat.juggleUntil then
+		combat.juggleHits = if now < combat.stunnedUntil then combat.juggleHits + 1 else 1
+		scale = math.min(1, Config.JUGGLE_DECAY / combat.juggleHits)
+	end
+	local stunFor = (def.stun + bonus) * scale
+	stun(st, now + stunFor)
 	if def.isHeavyStun or swing.isDelayed then
-		combat.lockedUntil = math.max(combat.lockedUntil, now + def.stun + bonus)
+		combat.lockedUntil = math.max(combat.lockedUntil, now + stunFor)
 		-- the client predicts its own parries, so it has to know which stuns it can't parry out of
 		target:SetAttribute("LockedUntil", combat.lockedUntil)
 	end
-	damage(target, st, def.damage * swing.power * (if isBreakHit then Config.BREAK_HIT_DAMAGE else 1), true, now)
-	-- a delayed light doesn't knock back, so a delayed finisher carries the string on
+	-- a delayed slam lands harder the longer it was held, the way a delayed hit stuns longer
+	local boost = if isBreakHit
+		then Config.BREAK_HIT_DAMAGE
+		elseif swing.kind == "Slam" then 1 + Config.SLAM_DELAY_DAMAGE * hold
+		else 1
+	damage(target, st, def.damage * swing.power * boost, true, now)
+	-- a delayed light doesn't knock back, so a delayed finisher carries the string on. nor does one in the air, so a
+	-- juggle goes on until the slam or a heavy ends it
 	local speed = if isBreakHit
 		then Config.BREAK_KNOCKBACK
-		elseif swing.isDelayed and swing.kind == "Light" then nil
+		elseif swing.kind == "Light" and (swing.isDelayed or isAloft(attacker, attackerSt, now)) then nil
 		else def.knockback
 	if speed then
-		knockback(target, root, from, speed, now)
+		-- the slam spikes its target down, into the floor pin
+		knockback(target, root, from, speed, now, if swing.kind == "Slam" then math.rad(Config.SLAM_ANGLE) else 0)
 		return "Knocked"
 	end
 	shove(target, root, from, swing.lunge)
@@ -279,7 +312,7 @@ end
 -- a knockback that meets a wall pins the body to it with its back to the wall, a true stun that also takes posture and
 -- a little damage, so the attacker has time to close in. another before WALL_IMMUNITY only stops there, the way the
 -- reference keeps a wall from pinning someone for good (R10.3)
-local function slam(char: Model, hit: RaycastResult)
+local function wallSlam(char: Model, hit: RaycastResult)
 	local st = StateService.get(char)
 	local root = StateService.liveRoot(char)
 	local now = workspace:GetServerTimeNow()
@@ -303,13 +336,88 @@ local function slam(char: Model, hit: RaycastResult)
 	local pose = CFrame.lookAt(at, at + out)
 	local plr = Players:GetPlayerFromCharacter(char)
 	if plr then
-		Remotes.WallSlam:FireClient(plr, pose)
+		Remotes.Pin:FireClient(plr, pose)
 	elseif not root.Anchored then
 		root.CFrame = pose
 	end
 	StateService.publish(char)
 	if Config.DEBUG then
 		print("wall slam", char.Name)
+	end
+end
+
+-- a slam that drives its target into the floor pins it there for SLAM_STUN, the way a wall pins, facing where it
+-- faced. set at its root's height over the floor where the server's path met it
+local function floorSlam(char: Model, hit: RaycastResult)
+	local st = StateService.get(char)
+	local root = StateService.liveRoot(char)
+	local now = workspace:GetServerTimeNow()
+	if not st or not root or st.combat.downed then
+		return
+	end
+	st.combat.floorUntil = now + Config.SLAM_STUN
+	stun(st, st.combat.floorUntil)
+	active[char] = true
+
+	local look = root.CFrame.LookVector
+	local at = hit.Position + Vector3.new(0, Config.ROOT_HEIGHT, 0)
+	local pose = CFrame.lookAt(at, at + Vector3.new(look.X, 0, look.Z))
+	local plr = Players:GetPlayerFromCharacter(char)
+	if plr then
+		Remotes.Pin:FireClient(plr, pose)
+	elseif not root.Anchored then
+		root.CFrame = pose
+	end
+	StateService.publish(char)
+	if Config.DEBUG then
+		print("floor slam", char.Name)
+	end
+end
+
+-- the uppercut throws both up into a juggle, the one way in for now, and a hit between the two of them in it holds
+-- both where they are, the way the reference's aerials work (R10.1). a knockback ends it: the slam spikes the target
+-- down, anything else out of the air sends it off at height. a parry drops both, and a hit from outside drops whoever
+-- it lands on
+local function juggle(
+	attacker: Model,
+	attackerSt: CharState,
+	target: Model,
+	swing: Swing,
+	result: Types.HitResult,
+	now: number
+)
+	local st = StateService.get(target)
+	local root = StateService.liveRoot(target)
+	local from = StateService.liveRoot(attacker)
+	if not st or not root or not from then
+		return
+	end
+
+	if result == "Parried" then
+		Juggle.release(attacker, attackerSt)
+		Juggle.release(target, st)
+	elseif result ~= "Hit" and result ~= "Knocked" then
+		return
+	-- a body pinned to a wall or the floor stays there
+	elseif now < st.combat.wallUntil or now < st.combat.floorUntil then
+		return
+	elseif swing.kind == "Launch" then
+		Juggle.hold(attacker, attackerSt, from, now, Config.LAUNCH_RISE, Config.JUGGLE_HOLD)
+		Juggle.hold(target, st, root, now, Config.LAUNCH_RISE, Config.JUGGLE_HOLD)
+	elseif result == "Knocked" then
+		-- the slam spikes it down, and anything else out of the air sends it off at height
+		local wasAloft = isAloft(attacker, attackerSt, now)
+		Juggle.release(attacker, attackerSt)
+		if wasAloft and swing.kind ~= "Slam" then
+			Juggle.hold(target, st, root, now, 0, Config.KNOCKBACK_TIME)
+		else
+			Juggle.release(target, st)
+		end
+	elseif now < attackerSt.combat.juggleUntil and now < st.combat.juggleUntil then
+		Juggle.hold(attacker, attackerSt, from, now, 0, Config.JUGGLE_HOLD)
+		Juggle.hold(target, st, root, now, 0, Config.JUGGLE_HOLD)
+	else
+		Juggle.release(target, st)
 	end
 end
 
@@ -322,6 +430,7 @@ local function land(attacker: Model, target: Model, swing: Swing, hitAt: number,
 	local result: Types.HitResult? = resolve(attacker, st, target, AttackDefs[swing.id], swing, hitAt, now)
 	StateService.publish(target)
 	if result then
+		juggle(attacker, st, target, swing, result, now)
 		fx(attacker, target, swing.id, result)
 		NpcAnimator.result(attacker, target, result)
 	end
@@ -390,7 +499,8 @@ local function settle(char: Model, st: CharState, now: number)
 	if not id then
 		st.combat.comboAt = endsAt
 		st.combat.swing = nil
-		if CombatDefs.isFinisher(st.combat.weapon, swing.id) then
+		-- in the air the string runs on, see resolve
+		if CombatDefs.isFinisher(st.combat.weapon, swing.id) and not isAloft(char, st, now) then
 			st.combat.cooldownUntil[LIGHT] = endsAt + CombatDefs.cooldowns[LIGHT]
 		end
 		return
@@ -468,7 +578,8 @@ local function attack(
 	local combat = st.combat
 
 	-- a light that lands just before the swing ends is the next hit, and starts exactly when that one ends. a strike
-	-- with a follow isn't really ending, and a string's last hit has endlag after it, so nothing queues behind either
+	-- with a follow isn't really ending, and a string's last hit has endlag after it on the ground, so nothing queues
+	-- behind either
 	local start = now
 	local current = combat.swing
 	if current then
@@ -480,7 +591,7 @@ local function attack(
 			or now < activeUntil
 			or endsAt - now > Config.COMBAT_TOLERANCE
 			or AttackDefs[current.id].follow
-			or CombatDefs.isFinisher(combat.weapon, current.id)
+			or (CombatDefs.isFinisher(combat.weapon, current.id) and not isAloft(char, st, now))
 		then
 			return false
 		end
@@ -496,6 +607,7 @@ local function attack(
 		combat.combo,
 		start - lastEnd,
 		combat.hasAirAttacked,
+		now < combat.juggleUntil,
 		function(name: Types.CombatCooldown): boolean
 			return isReady(st, name, now)
 		end
@@ -586,7 +698,7 @@ function CombatService.act(char: Model, action: Types.CombatAction): boolean
 		return false
 	end
 
-	if action == "Light" or action == "Heavy" then
+	if action == "Light" or action == "Heavy" or action == "Slam" then
 		if not attack(char, st, action, move, now) then
 			return false
 		end
@@ -619,7 +731,9 @@ end
 
 local function step()
 	local now = workspace:GetServerTimeNow()
-	Knockback.step(now, slam)
+	Knockback.step(now, wallSlam, floorSlam)
+	NpcAnimator.step()
+	Juggle.step(now)
 	local i = 1
 	while i <= #held do
 		local h = held[i]
@@ -668,6 +782,7 @@ local function step()
 			and now >= combat.stunnedUntil
 			and now >= combat.brokenUntil
 			and now >= combat.wallUntil
+			and now >= combat.floorUntil
 			and now >= combat.parryUntil
 		then
 			active[char] = nil
@@ -734,6 +849,7 @@ end
 function CombatService.remove(char: Model)
 	Grip.remove(char)
 	Knockback.stop(char)
+	Juggle.remove(char)
 	characters[char] = nil
 	Hitbox.remove(char)
 	Ragdoll.remove(char)

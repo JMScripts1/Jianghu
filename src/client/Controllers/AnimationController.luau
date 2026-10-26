@@ -15,6 +15,8 @@ type Ctx = Context.Ctx
 
 local BOOST_MARKER = "Boost"
 local BACK_DASH: Types.AnimName = "DashB"
+local IDLE: Types.AnimName = "Idle"
+local FALL: Types.AnimName = "Fall"
 local RUN: Types.AnimName = "Run"
 local SPRINT: Types.AnimName = "Sprint"
 local ROLL: Types.AnimName = "Roll"
@@ -53,6 +55,8 @@ local dashing: AnimationTrack? = nil
 local rolling: AnimationTrack? = nil
 local leaps = 0
 local isSprinting = false
+-- a juggle holding the body up in Fall plays the idle, the fall loop would flail under every swing
+local isHeldUp = false
 
 for name: Types.AnimName, id in Anims do
 	local anim = Instance.new("Animation")
@@ -197,6 +201,7 @@ function AnimationController.load(c: Ctx)
 		dashing = nil
 		rolling = nil
 		isSprinting = false
+		isHeldUp = false
 	end)
 end
 
@@ -234,6 +239,8 @@ function AnimationController.play(c: Ctx): number
 		start(LEAPS[leaps])
 	elseif c.state == "Run" then
 		start(runName(c))
+	elseif c.state == "Fall" and isHeldUp then
+		start(IDLE)
 	else
 		start(c.state)
 	end
@@ -251,8 +258,15 @@ function AnimationController.play(c: Ctx): number
 	return if playing then playing.Length else 0
 end
 
--- momentum moves all through a run without the state changing, so the run or sprint is picked again every step
+-- momentum moves all through a run without the state changing, so the run or sprint is picked again every step. a
+-- juggle starts and ends without one either
 function AnimationController.step(c: Ctx)
+	if c.isHeldUp ~= isHeldUp then
+		isHeldUp = c.isHeldUp
+		if c.state == "Fall" then
+			start(if isHeldUp then IDLE else FALL)
+		end
+	end
 	if c.state ~= "Run" then
 		return
 	end

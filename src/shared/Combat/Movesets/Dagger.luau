@@ -88,6 +88,22 @@ local Dagger: Types.Moveset = {
 	},
 	run = { anim = "" },
 	air = { anim = "" },
+	-- 39 frames, it lands about frame 21. it checks a few frames either side, the same way the lights do
+	launch = {
+		anim = "rbxassetid://80619691559159",
+		windup = 18 / 60,
+		active = 4 / 60,
+		recovery = 17 / 60,
+	},
+	-- 35 frames, the windup ends on frame 19 and it lands about 24. a delay creeps on at DELAY_SPEED, about 4 frames
+	-- over a full hold, so it starts that much early and a held slam sits at the top of its windup
+	slam = {
+		anim = "rbxassetid://139744136217190",
+		windup = 22 / 60,
+		delayAt = 15 / 60,
+		active = 4 / 60,
+		recovery = 9 / 60,
+	},
 	movement = {
 		Idle = "rbxassetid://137203815389780",
 		Walk = "rbxassetid://75792971332525",

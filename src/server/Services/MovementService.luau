@@ -2,7 +2,6 @@
 -- Jianghu by Ruha.luau (github.com/JMScripts1)
 -- MIT licensed, see LICENSE. Feel free to remove this header.
 local Players = game:GetService("Players")
-local PhysicsService = game:GetService("PhysicsService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.Config)
@@ -15,8 +14,6 @@ local StateService = require(script.Parent.StateService)
 
 type CharState = StateService.CharState
 
-local CHAR_GROUP = "Characters"
-local PROBE_GROUP = "MoveProbe"
 local MAX_STATE_LEN = 16
 -- groundedAt is only stamped once per sample, so a fresh one can be a whole interval old
 local COYOTE_WINDOW = Config.COYOTE + Config.SPEED_SAMPLE_INTERVAL
@@ -38,12 +35,6 @@ for state: Types.MoveState, def in MoveDefs do
 end
 
 local MovementService = {}
-
-local function setGroup(part: Instance)
-	if part:IsA("BasePart") then
-		part.CollisionGroup = CHAR_GROUP
-	end
-end
 
 local function onGround(root: BasePart): boolean
 	return Probes.ground(root, GROUND_REACH) ~= nil
@@ -96,7 +87,8 @@ local function canEnter(
 	elseif to == "DoubleJump" then
 		return move.airJumps < Config.MAX_AIR_JUMPS
 	elseif MoveDefs[to].isDash then
-		return not move.hasAirDashed
+		-- a juggle lets the air dash be used again, the client's juggle ends a little after this one does
+		return not move.hasAirDashed or now < st.combat.juggleUntil + Config.COOLDOWN_TOLERANCE
 	elseif MoveDefs[to].isAttached then
 		local hit = Probes.wall(root, ANY_SPEED, reach(st, Config.WALL_REACH))
 		-- a wall takes one cling and one run, then it's used up until landing
@@ -256,21 +248,7 @@ end
 function MovementService.add(char: Model)
 	StateService.exempt(char, Config.SPAWN_EXEMPT)
 	char:SetAttribute("MoveState", StateService.current(char))
-
-	for _, part in char:GetDescendants() do
-		setGroup(part)
-	end
-	-- accessories and tools arrive after spawn
-	char.DescendantAdded:Connect(setGroup)
 end
-
--- the place file may already have them from the collision group editor
-for _, name in { CHAR_GROUP, PROBE_GROUP } do
-	if not PhysicsService:IsCollisionGroupRegistered(name) then
-		PhysicsService:RegisterCollisionGroup(name)
-	end
-end
-PhysicsService:CollisionGroupSetCollidable(PROBE_GROUP, CHAR_GROUP, false)
 
 Remotes.Move.OnServerEvent:Connect(onMove)
 

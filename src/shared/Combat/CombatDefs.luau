@@ -16,12 +16,14 @@ local DEFAULT_WEAPON: Types.WeaponId = "fist"
 local HEAVY: Types.CombatCooldown = "Heavy"
 local RUN: Types.CombatCooldown = "Run"
 local LIGHT: Types.CombatCooldown = "Light"
+local LAUNCH: Types.CombatCooldown = "Launch"
 
 local COOLDOWNS: { [Types.CombatCooldown]: number } = {
 	Parry = Config.PARRY_COOLDOWN,
 	Heavy = Config.HEAVY_COOLDOWN,
 	Delay = Config.DELAY_COOLDOWN,
 	Run = Config.RUN_ATTACK_COOLDOWN,
+	Launch = Config.LAUNCH_COOLDOWN,
 	Light = Config.STRING_ENDLAG,
 }
 
@@ -40,16 +42,17 @@ local GUARDED: { Target } = { "Idle", "Walk", "Fall", "Dash" }
 
 local rows: { [Types.CombatState]: Row } = {
 	-- a grip is only started standing free, see CombatService
-	Idle = { actions = { "Light", "Heavy", "Grip" } },
+	Idle = { actions = { "Light", "Heavy", "Grip", "Slam" } },
 	-- a light is only taken near the end of the swing
-	Attacking = { actions = { "Light" }, moves = SLOWED },
+	Attacking = { actions = { "Light", "Slam" }, moves = SLOWED },
 	Parrying = { actions = {}, moves = GUARDED },
 	-- the swing wins while it runs, the block comes back after if still held
-	Blocking = { actions = { "Light", "Heavy" }, moves = GUARDED },
+	Blocking = { actions = { "Light", "Heavy", "Slam" }, moves = GUARDED },
 	Stunned = { actions = {}, moves = SLOWED },
 	PostureBroken = { actions = {}, moves = SLOWED },
 	-- the client anchors itself to the wall for the length of it
 	WallStunned = { actions = {}, moves = SLOWED },
+	FloorStunned = { actions = {}, moves = SLOWED },
 	-- standing still is allowed, the walk speed of 0 is what keeps it down
 	Downed = { actions = {}, moves = SLOWED },
 	-- both bodies are anchored for the length of it. Grip again lets go
@@ -59,12 +62,14 @@ local rows: { [Types.CombatState]: Row } = {
 
 local GROUND: { Target } = { "Idle", "Walk", "Run" }
 local AIR: { Target } = { "Jump", "DoubleJump", "SlideJump", "LedgeLeap", "Fall" }
+local CROUCHED: { Target } = { "CrouchIdle", "CrouchWalk" }
 
--- the move states each action can start in. nothing starts crouched, sliding, on a wall, mantling or dashing.
--- a light in the air is the air attack and one out of Run is the running attack, see pick
+-- the move states each action can start in. nothing starts sliding, on a wall, mantling or dashing. a light crouched
+-- is the uppercut, one out of Run is the running attack, and a heavy in the air only comes out of a juggle, see pick
 local FROM: { [Types.CombatAction]: { { Target } } } = {
-	Light = { GROUND, AIR },
-	Heavy = { GROUND },
+	Light = { GROUND, AIR, CROUCHED },
+	Heavy = { GROUND, AIR },
+	Slam = { AIR },
 	Grip = { GROUND },
 }
 
@@ -116,7 +121,7 @@ for state: Types.CombatState, row in rows do
 	table.freeze(def)
 end
 
-local ACTIONS: { Types.CombatAction } = { "Light", "Heavy", "Release", "Block", "Unblock", "Grip" }
+local ACTIONS: { Types.CombatAction } = { "Light", "Heavy", "Release", "Block", "Unblock", "Grip", "Slam" }
 
 -- Release, Unblock and Block are taken anywhere, a block press only sets the held flag
 local from: { [Types.CombatAction]: { [Types.MoveState]: true } } = {}
@@ -157,7 +162,8 @@ local function has(id: Types.AttackId): boolean
 end
 
 -- which attack an action is, the same rules on both sides so the client's prediction and the server never drift:
--- the heavy, the air attack in the air, the running attack out of Run, otherwise the next hit of the string.
+-- the heavy, the slam out of a juggle, the uppercut crouched, the air attack in the air outside a juggle,
+-- the running attack out of Run, otherwise the next hit of the string.
 -- nil when it can't happen. it changes nothing, the caller applies the result
 local function pick(
 	weapon: Types.WeaponId,
@@ -166,14 +172,25 @@ local function pick(
 	combo: number,
 	sinceLast: number,
 	hasAirAttacked: boolean,
+	isJuggling: boolean,
 	isReady: (Types.CombatCooldown) -> boolean
 ): Types.Pick?
 	local def = WeaponDefs[weapon]
+	local isAir = MoveDefs[move].group == "Airborne"
 	if action == "Heavy" then
-		return if isReady(HEAVY) and has(def.heavy)
+		return if isReady(HEAVY)
+				and has(def.heavy)
+				and (isJuggling or not isAir)
 			then { id = def.heavy, kind = "Heavy", combo = 0, cooldown = HEAVY }
 			else nil
-	elseif MoveDefs[move].group == "Airborne" then
+	elseif action == "Slam" then
+		return if isJuggling and has(def.slam) then { id = def.slam, kind = "Slam", combo = 0 } else nil
+	elseif move == "CrouchIdle" or move == "CrouchWalk" then
+		return if isReady(LAUNCH) and has(def.launch)
+			then { id = def.launch, kind = "Launch", combo = 0, cooldown = LAUNCH }
+			else nil
+	elseif isAir and not isJuggling then
+		-- the uppercut is the one way into air combat, outside a juggle only a weapon's own air attack swings up there
 		return if hasAirAttacked or not has(def.air) then nil else { id = def.air, kind = "Air", combo = 0 }
 	elseif move == "Run" and isReady(RUN) and has(def.run) then
 		return { id = def.run, kind = "Run", combo = 0, cooldown = RUN }

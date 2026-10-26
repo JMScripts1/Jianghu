@@ -87,6 +87,8 @@ export type CombatState =
 	| "PostureBroken"
 	-- pinned to a wall a knockback threw it into
 	| "WallStunned"
+	-- pinned to the floor a slam drove it into
+	| "FloorStunned"
 	| "Downed"
 	| "Gripping"
 	-- a downed body in someone's grip
@@ -100,7 +102,8 @@ export type Reaction = CombatState | "Parry" | "Deflected" | "BlockHit" | "Hurt"
 -- one animation, or several that take turns
 export type ReactionAnims = string | { string }
 
-export type CombatAction = "Light" | "Heavy" | "Release" | "Block" | "Unblock" | "Grip"
+-- Slam is a light pressed with jump held, in the air
+export type CombatAction = "Light" | "Heavy" | "Release" | "Block" | "Unblock" | "Grip" | "Slam"
 
 -- a paired animation on a downed body. both halves start on the same server frame, and the victim's root is held at
 -- offset from the gripper's, the way the two rigs stood when it was animated. the kill lands killAt seconds in
@@ -120,7 +123,7 @@ export type Grip = {
 }
 
 -- Light is the endlag after a string's last hit, started when that swing ends
-export type CombatCooldown = "Parry" | "Heavy" | "Delay" | "Run" | "Light"
+export type CombatCooldown = "Parry" | "Heavy" | "Delay" | "Run" | "Light" | "Launch"
 
 export type WeaponId = "fist" | "dagger"
 
@@ -134,7 +137,8 @@ export type AttackId = string
 export type HitResult = "Dodged" | "Parried" | "Blocked" | "Broken" | "Hit" | "Knocked"
 
 -- which slot of the weapon an attack came from
-export type AttackKind = "Light" | "Heavy" | "Run" | "Air"
+-- Launch is the crouched uppercut that starts a juggle, Slam the jump held light in one
+export type AttackKind = "Light" | "Heavy" | "Run" | "Air" | "Launch" | "Slam"
 
 -- what CombatDefs.pick decided. combo is the string count after this attack, 0 for anything but a light
 export type Pick = {
@@ -202,7 +206,12 @@ export type Moveset = {
 	light: { AttackSpec },
 	heavy: AttackSpec,
 	run: AttackSpec,
+	-- a single air attack in place of the string in the air outside a juggle, an empty one leaves the string
 	air: AttackSpec,
+	-- the crouched uppercut that throws both fighters up into a juggle
+	launch: AttackSpec,
+	-- the jump held light in a juggle, it spikes the target down
+	slam: AttackSpec,
 	-- this weapon type's own reactions, anything empty or left out plays the one in CombatAnims
 	reactions: { [Reaction]: ReactionAnims }?,
 	-- a weapon type without one can't grip
@@ -225,6 +234,8 @@ export type WeaponDef = {
 	heavy: AttackId,
 	run: AttackId,
 	air: AttackId,
+	launch: AttackId,
+	slam: AttackId,
 	-- every slot as a list, empty when it has no animation
 	reactions: { [Reaction]: { string } },
 	grip: Grip?,

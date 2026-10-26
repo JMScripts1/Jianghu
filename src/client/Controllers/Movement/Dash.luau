@@ -44,7 +44,9 @@ local function updateBack(c: Ctx, run: Context.DashRun, back: Vector3): boolean
 		return true
 	end
 
-	local speed = Config.BACK_DASH_SPEED * (if boostedAt then Config.BACK_DASH_BOOST else Config.BACK_DASH_DRIFT)
+	local speed = Config.BACK_DASH_SPEED
+		* (if boostedAt then Config.BACK_DASH_BOOST else Config.BACK_DASH_DRIFT)
+		* run.scale
 	Context.glide(c, back * speed)
 	return false
 end
@@ -57,7 +59,7 @@ local function updateBurst(c: Ctx, run: Context.DashRun): boolean
 
 	-- the tail brakes back onto momentum. the air dash has none, it lets go at full speed and the air bleeds it off
 	local fade = if run.isAirDash then 0 else math.max(0, elapsed - HOLD) / (Config.DASH_TIME - HOLD)
-	local peak = math.max(if run.isAirDash then Config.AIR_DASH_SPEED else Config.DASH_SPEED, c.momentum)
+	local peak = math.max(if run.isAirDash then Config.AIR_DASH_SPEED else Config.DASH_SPEED, c.momentum) * run.scale
 	local speed = peak + (c.momentum - peak) * fade
 	Context.glide(c, direction(c) * speed)
 
@@ -70,7 +72,9 @@ end
 
 function Dash.enter(c: Ctx)
 	local isAir = MoveDefs[c.prev].group == "Airborne"
-	local isAirDash = isAir and c.state == "DashF"
+	-- inside a juggle every dash is for getting round the target, so a forward one stays a plain directional dash
+	-- instead of the air dash, and all of them go a short way
+	local isAirDash = isAir and c.state == "DashF" and not c.isHeldUp
 	if isAirDash then
 		Context.gain(c, "DashF", math.max(c.momentum + Config.AIR_DASH_GAIN, Config.AIR_DASH_EXIT))
 	end
@@ -78,6 +82,7 @@ function Dash.enter(c: Ctx)
 		isAir = isAir,
 		isAirDash = isAirDash,
 		back = if c.state == "DashB" then -Context.look(c) else nil,
+		scale = if c.isHeldUp then Config.JUGGLE_DASH_SCALE else 1,
 	}
 end
 
