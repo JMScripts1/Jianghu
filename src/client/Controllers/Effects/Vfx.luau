@@ -6,7 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Types = require(ReplicatedStorage.Shared.Types)
 
 -- the folders in assets/Vfx.rbxm, a hit type's own and the ones everyone shares. Swing's are named by the attacks
-export type Group = Types.HitType | "Movement" | "Shared" | "Swing"
+export type Group = Types.HitType | "Movement" | "Shared" | "Swing" | "Blood"
 
 -- picked in Studio and saved over assets/Vfx.rbxm, see the effects plan. an empty slot plays nothing
 local templates = ReplicatedStorage:WaitForChild("Vfx")
@@ -183,6 +183,14 @@ function Vfx.template(group: Group, name: string): Instance?
 		warn("vfx", path, "has to be a Part, an Attachment or a Folder of them, not a", found.ClassName)
 	end
 	return nil
+end
+
+-- a copy of a part template set at cf, anchored and never hit, for the caller to move and destroy itself. nothing in
+-- it is emitted, a trail draws on its own as it moves
+function Vfx.part(template: BasePart, cf: CFrame): BasePart
+	local holder = place(template, cf, true)
+	holder.Parent = folder
+	return holder
 end
 
 -- a one shot left where it happened

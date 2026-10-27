@@ -8,10 +8,12 @@ local Players = game:GetService("Players")
 export type Group = "Players" | "Npcs" | "Ragdoll" | "MoveProbe"
 
 -- every collision group and who passes through whom, in one place, like the reference's CollisionManager. any pair
--- not listed collides. players pass through each other, NPCs still block players and each other, and ragdoll limbs
--- land on the map and nothing else
+-- not listed collides. fighters pass through each other, players and NPCs alike, so no body can shove another
+-- around, and ragdoll limbs land on the map and nothing else
 local APART: { { Group } } = {
 	{ "Players", "Players" },
+	{ "Players", "Npcs" },
+	{ "Npcs", "Npcs" },
 	{ "MoveProbe", "Players" },
 	{ "MoveProbe", "Npcs" },
 	{ "Ragdoll", "Players" },

@@ -21,7 +21,7 @@ local GRIP_POSE: Types.Reaction = "GripPose"
 local rows: { [Types.WeaponId]: Row } = {
 	fist = { moveset = "fist", damage = 1, speed = 1.15, reach = 1 },
 	-- quicker and weaker than the fist, and it has to get closer
-	dagger = { moveset = "dagger", damage = 0.8, speed = 1.3, reach = 0.8, model = "Dagger" },
+	dagger = { moveset = "dagger", damage = 0.8, speed = 1.3, reach = 1, model = "Dagger" },
 }
 
 local WeaponDefs: { [Types.WeaponId]: Types.WeaponDef } = {}

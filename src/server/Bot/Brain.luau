@@ -136,9 +136,9 @@ local function roll(range: NumberRange): number
 	return range.Min + math.random() * (range.Max - range.Min)
 end
 
--- the box's far edge, the same box the server checks a swing with
-local function reach(box: Vector3): number
-	return box.Z + Config.HIT_SLACK * 2 - Config.BOX_BACK
+-- the box's far edge with its lunge, the same box the server checks a swing with
+local function reach(def: Types.AttackDef): number
+	return def.box.Z + Config.HIT_SLACK * 2 - Config.BOX_BACK + (def.lunge or 0) * Config.LUNGE_TIME
 end
 
 function Brain.skill(model: Model): Skill
@@ -268,10 +268,11 @@ local function defend(
 ): string?
 	local sight = mind.sight
 	local swing = Sight.swing(sight, now)
-	if swing and swing ~= mind.threat and Hitbox.reaches(from, AttackDefs[swing.id].box, model) then
+	local seenDef = if swing then AttackDefs[swing.id] else nil
+	if swing and seenDef and swing ~= mind.threat and Hitbox.reaches(from, seenDef.box, seenDef.lunge or 0, model) then
 		local isLocked = now < st.combat.lockedUntil
 		mind.threat = swing
-		mind.answer = choose(state, AttackDefs[swing.id], skill, StateService.posture(model), isLocked)
+		mind.answer = choose(state, seenDef, skill, StateService.posture(model), isLocked)
 		mind.isAnswered = mind.answer == "Take"
 		if Config.DEBUG then
 			print("bot", model.Name, mind.answer, swing.id)
@@ -411,7 +412,10 @@ local function offend(
 		local endsAt = if swing then swing.endsAt else nil
 		local activeUntil = if swing then swing.activeUntil else nil
 		local isReady = not swing or (endsAt and activeUntil and now >= activeUntil and endsAt - now <= QUEUE)
-		local action: Types.CombatAction = if mind.airLeft <= 0 then "Slam" else "Light"
+		-- a slam that missed is spent until landing, so it strings on instead
+		local action: Types.CombatAction = if mind.airLeft <= 0 and not st.combat.hasAirAttacked
+			then "Slam"
+			else "Light"
 		if isReady and CombatService.act(model, action) then
 			mind.airLeft -= 1
 		end
@@ -443,8 +447,8 @@ local function offend(
 		return "Footsies", "Hover"
 	end
 	local targetRoot = StateService.liveRoot(target)
-	local box = AttackDefs[light[1]].box
-	if not targetRoot or not Hitbox.reaches(root, box, target) then
+	local first = AttackDefs[light[1]]
+	if not targetRoot or not Hitbox.reaches(root, first.box, first.lunge or 0, target) then
 		return if mind.isPunishing then "Punish" else "Close", "In"
 	end
 
@@ -472,7 +476,7 @@ local function space(mind: Mind, st: StateService.CharState, root: BasePart, to:
 	local gap = to.Position - root.Position
 	local dist = Vector3.new(gap.X, 0, gap.Z).Magnitude
 	local toward = Vector3.new(gap.X, 0, gap.Z).Unit
-	local hover = reach(AttackDefs[WeaponDefs[st.combat.weapon].light[1]].box) + HOVER_SLACK
+	local hover = reach(AttackDefs[WeaponDefs[st.combat.weapon].light[1]]) + HOVER_SLACK
 
 	if now >= mind.nextStrafeAt then
 		mind.strafe = -mind.strafe

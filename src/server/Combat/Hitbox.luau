@@ -59,9 +59,13 @@ function Hitbox.remove(char: Model)
 	end
 end
 
--- every character whose root is in the box in front of `from` with nothing from the map in between
-function Hitbox.query(from: BasePart, box: Vector3): { Model }
-	local size = box + Vector3.one * (Config.HIT_SLACK * 2)
+-- every character whose root is in the box in front of `from` with nothing from the map in between. a swing that
+-- lunges covers the ground its lunge does, so the box reaches on past where the root is by as far as lunge carries it
+-- in LUNGE_TIME. the lunge starts at the hit and the server sees the attacker's own push a replication late, so the
+-- root is always still where the lunge started. a wall in the way is still caught by the sight ray
+function Hitbox.query(from: BasePart, box: Vector3, lunge: number): { Model }
+	local slack = Config.HIT_SLACK * 2
+	local size = box + Vector3.new(slack, slack, slack + lunge * Config.LUNGE_TIME)
 	-- forward is -Z, so the back face sits BOX_BACK behind the root
 	local cf = from.CFrame * CFrame.new(0, 0, Config.BOX_BACK - size.Z / 2)
 	if Config.DEBUG then
@@ -83,8 +87,8 @@ function Hitbox.query(from: BasePart, box: Vector3): { Model }
 end
 
 -- whether a swing from `from` with this box would catch target, the same query the swing itself runs
-function Hitbox.reaches(from: BasePart, box: Vector3, target: Model): boolean
-	return table.find(Hitbox.query(from, box), target) ~= nil
+function Hitbox.reaches(from: BasePart, box: Vector3, lunge: number, target: Model): boolean
+	return table.find(Hitbox.query(from, box, lunge), target) ~= nil
 end
 
 return Hitbox

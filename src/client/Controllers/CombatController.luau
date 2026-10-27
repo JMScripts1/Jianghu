@@ -35,7 +35,8 @@ type Swing = {
 	held: number,
 	-- studs a second pushed forward at the hit, 0 once it has gone
 	lunge: number,
-	-- its swing effect has played, at the hit
+	-- its whoosh has played, as the windup starts, and its swing effect, at the hit
+	hasWoundUp: boolean,
 	hasSwung: boolean,
 	kind: Types.AttackKind,
 	track: AnimationTrack?,
@@ -177,7 +178,7 @@ local function attack(c: Ctx, action: Types.CombatAction, button: InputControlle
 	if picked.cooldown then
 		cooldownUntil[picked.cooldown] = now + CombatDefs.cooldowns[picked.cooldown]
 	end
-	if picked.kind == "Air" then
+	if picked.kind == "Air" or picked.kind == "Slam" then
 		hasAirAttacked = true
 	elseif picked.kind == "Launch" then
 		-- the uppercut stands up out of the crouch it came from, a whiff leaves the body standing
@@ -204,6 +205,7 @@ local function attack(c: Ctx, action: Types.CombatAction, button: InputControlle
 		held = 0,
 		-- the run drops to a walk as the swing starts, so the lunge keeps the momentum it came in with
 		lunge = if picked.kind == "Run" then c.momentum * Config.RUN_ATTACK_LUNGE else def.lunge or 0,
+		hasWoundUp = false,
 		hasSwung = false,
 		kind = picked.kind,
 		track = track,
@@ -226,6 +228,7 @@ local function follow(current: Swing, id: Types.AttackId)
 		isHolding = false,
 		held = current.held,
 		lunge = if def.lunge then def.lunge + bonus else 0,
+		hasWoundUp = false,
 		hasSwung = false,
 		kind = current.kind,
 		track = current.track,
@@ -341,10 +344,15 @@ local function move(c: Ctx, now: number)
 	end
 end
 
--- the arc the swing cuts, the moment it comes through. a delay moves hitAt later, so a held swing waits for its
--- release. the server's copy reaches everyone else, this one skips the trip
+-- the whoosh as the windup starts, and the arc the swing cuts the moment it comes through. a delay moves hitAt later,
+-- so a held swing's arc waits for its release. the server's copies reach everyone else, these skip the trip
 local function swingFx(c: Ctx, now: number)
 	local current = swing
+	-- a follow's windup starts when the strike before it ends
+	if current and not current.hasWoundUp and now >= current.startedAt then
+		current.hasWoundUp = true
+		CombatFx.windup(c.char, current.id)
+	end
 	if current and not current.hasSwung and now >= current.hitAt then
 		current.hasSwung = true
 		CombatFx.swing(c.char, current.id)
@@ -478,12 +486,13 @@ function CombatController.step(c: Ctx): boolean
 	end
 	settle(c, now)
 
-	-- with jump held in a juggle it's the slam, anywhere else just a light
+	-- with jump held in a juggle it's the slam, anywhere else just a light. once the slam is spent it's a light again
 	if InputController.take("Light") then
 		local current = swing
 		local action: Types.CombatAction = if InputController.isDown("Jump")
 				and MoveDefs[c.state].group == "Airborne"
 				and Body.isJuggled(now)
+				and not hasAirAttacked
 			then "Slam"
 			else "Light"
 		if not current then

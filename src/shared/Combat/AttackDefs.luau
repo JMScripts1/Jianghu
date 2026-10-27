@@ -5,6 +5,12 @@ local Movesets = require(script.Parent.Movesets)
 local Types = require(script.Parent.Parent.Types)
 local WeaponDefs = require(script.Parent.WeaponDefs)
 
+-- an attack's contact and length are frames of its animation at this rate. the server starts a swing half a ping late,
+-- so the box opens HIT_LEAD before the contact frame and stays open HIT_ACTIVE, through just after it
+local FPS = 60
+local HIT_LEAD = 3 / FPS
+local HIT_ACTIVE = 4 / FPS
+
 -- the starting numbers every moveset tunes from. a light with an empty anim swings with nothing to see, a heavy,
 -- running or air attack with one is never picked, see CombatDefs.pick
 local LIGHT: Types.AttackDef = {
@@ -141,6 +147,28 @@ local SLAM: Types.AttackDef = {
 	hand = "Right",
 }
 
+-- windup, active and recovery in seconds at a speed of 1. from a contact frame the box opens HIT_LEAD before it and
+-- the rest of the animation up to length is recovery, so the three add up to the whole anim. a strike with a follow ends
+-- as its box closes, the follow's windup runs on from there, and only the last strike needs a length. from is where in
+-- the animation this strike starts. any of the three set by hand wins
+local function timing(
+	kind: Types.AttackDef,
+	spec: Types.AttackSpec,
+	id: Types.AttackId,
+	from: number
+): (number, number, number)
+	local contact = spec.contact
+	if not contact then
+		return spec.windup or kind.windup, spec.active or kind.active, spec.recovery or kind.recovery
+	end
+	local windup = spec.windup or contact / FPS - HIT_LEAD - from
+	local active = spec.active or HIT_ACTIVE
+	local length = spec.length
+	assert(spec.recovery or spec.follow or length, `{id} has a contact frame but no length`)
+	local recovery = spec.recovery or if spec.follow or not length then 0 else length / FPS - from - windup - active
+	return windup, active, recovery
+end
+
 -- the weapon's stats go in here, so every number downstream is already that weapon's own.
 -- booleans go through ~= nil, `or` would turn a false back into the kind's true
 local function build(
@@ -148,22 +176,27 @@ local function build(
 	spec: Types.AttackSpec,
 	weapon: Types.WeaponDef,
 	hitType: Types.HitType?,
-	hand: Types.Hand?
+	hand: Types.Hand?,
+	id: Types.AttackId,
+	from: number
 ): Types.AttackDef
 	local delayAt = spec.delayAt or kind.delayAt
 	local box = spec.box or kind.box
 	local knockback = spec.knockback or kind.knockback
+	local windup, active, recovery = timing(kind, spec, id, from)
 	return {
 		anim = spec.anim or "",
 		speed = weapon.speed,
-		windup = (spec.windup or kind.windup) / weapon.speed,
+		windup = windup / weapon.speed,
 		delayAt = if delayAt then delayAt / weapon.speed else nil,
-		active = (spec.active or kind.active) / weapon.speed,
-		recovery = (spec.recovery or kind.recovery) / weapon.speed,
+		active = active / weapon.speed,
+		recovery = recovery / weapon.speed,
 		damage = (spec.damage or kind.damage) * weapon.damage,
 		posture = spec.posture or kind.posture,
 		chip = spec.chip or kind.chip,
-		stun = spec.stun or kind.stun,
+		-- a stun is there to reach the next hit, so it shrinks with the swing. unscaled, a faster weapon's string holds
+		-- its target through the gaps after it and a delayed hit locks out more than the one hit after it
+		stun = (spec.stun or kind.stun) / weapon.speed,
 		-- reach is depth only, a longer weapon doesn't swing any wider
 		box = Vector3.new(box.X, box.Y, box.Z * weapon.reach),
 		lunge = spec.lunge or kind.lunge,
@@ -191,24 +224,31 @@ local function add(
 	spec: Types.AttackSpec,
 	weapon: Types.WeaponDef,
 	hand: Types.Hand?,
-	first: Types.AttackDef?
+	first: Types.AttackDef?,
+	from: number?
 )
+	local id = if n == 1 then base else `{base}_{n}`
+	local startsAt = from or 0
 	local def = build(
 		kind,
 		spec,
 		weapon,
 		if first then first.hitType else Movesets[weapon.moveset].hitType,
-		if first then first.hand else hand
+		if first then first.hand else hand,
+		id,
+		startsAt
 	)
 	if first then
 		def.anim = first.anim
 		def.delayAt = nil
 	end
-	AttackDefs[if n == 1 then base else `{base}_{n}`] = def
+	AttackDefs[id] = def
 	local follow = spec.follow
 	if follow then
 		def.follow = `{base}_{n + 1}`
-		add(base, n + 1, kind, follow, weapon, def.hand, def)
+		-- back to a speed of 1, where the follow's frames are
+		local endsAt = startsAt + (def.windup + def.active + def.recovery) * weapon.speed
+		add(base, n + 1, kind, follow, weapon, def.hand, def, endsAt)
 	end
 end
 

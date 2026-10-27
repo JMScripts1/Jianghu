@@ -142,6 +142,12 @@ return table.freeze({
 	FOOTSTEP_RANGE = 80,
 	-- movement effects only play on characters this close to the camera. combat ones are sent within FX_RANGE
 	VFX_RANGE = 150,
+	-- blood drops fly out at BLOOD_SPEED studs a second, give or take a third, and fall at BLOOD_GRAVITY. no more than
+	-- BLOOD_MAX_DROPS are in the air at once, and one still flying after BLOOD_LIFETIME is dropped without a splat
+	BLOOD_SPEED = 25,
+	BLOOD_GRAVITY = 100,
+	BLOOD_MAX_DROPS = 40,
+	BLOOD_LIFETIME = 3,
 	ANIM_FADE = 0.1,
 	-- a held pose stops this close to its animation's end, two frames at 60 so a step never jumps past it
 	LAST_FRAME = 2 / 60,
@@ -202,7 +208,7 @@ return table.freeze({
 	-- a parry and a hit on a player are judged as far back as its screen is behind: its round trip plus VIEW_DELAY,
 	-- the replication before a swing shows, never more than PARRY_REWIND. see Ping
 	PARRY_REWIND = 0.2,
-	VIEW_DELAY = 0.05,
+	VIEW_DELAY = 0.03,
 	PING_INTERVAL = 2,
 	-- the target's flat look dotted with the way to the attacker. under 0 because the server sees a turn late
 	GUARD_FACING = -0.15,
@@ -312,7 +318,7 @@ return table.freeze({
 	BOT_MAX = 6,
 
 	-- user ids that get the admin menu on a live server, everyone gets it in Studio
-	ADMINS = table.freeze({ 10837572668 }),
+	ADMINS = table.freeze({ 10837572668, 1097364448 }),
 	EQUIP_BURST = 4,
 	EQUIP_REFILL = 2,
 	BOT_BURST = 6,

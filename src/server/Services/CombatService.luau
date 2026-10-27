@@ -57,6 +57,8 @@ local active: { [Model]: true } = {}
 -- hits on players wait out the target's rewind before they land, so a parry pressed in time on its screen can still
 -- arrive. oldest first
 local held: { { attacker: Model, target: Model, swing: Swing, hitAt: number, landsAt: number } } = {}
+-- the push each NPC root is under, see push
+local movers: { [BasePart]: Attachment } = {}
 
 local function isReady(st: CharState, name: Types.CombatCooldown, now: number): boolean
 	return now + Config.COOLDOWN_TOLERANCE >= (st.combat.cooldownUntil[name] or 0)
@@ -121,6 +123,12 @@ local function isAloft(char: Model, st: CharState, now: number): boolean
 	return now < st.combat.juggleUntil or MoveDefs[StateService.current(char)].group == "Airborne"
 end
 
+-- a hit the juggle catches: the uppercut, or one between two fighters already in it. the juggle pins its target and
+-- carries it along the attacker's step itself, so it isn't shoved as well, see juggle
+local function isCaught(attackerSt: CharState, st: CharState, swing: Swing, now: number): boolean
+	return swing.kind == "Launch" or (now < attackerSt.combat.juggleUntil and now < st.combat.juggleUntil)
+end
+
 -- judged against where the window opened on the player's own screen, see Ping
 local function isInParry(st: CharState, at: number): boolean
 	return at >= st.combat.parryFrom and at < st.combat.parryFrom + Config.PARRY_WINDOW
@@ -139,8 +147,14 @@ end
 -- the server owns NPCs, so it pushes them itself. the mover only lives as long as the push. a flat push leaves the
 -- fall alone, one with height drives it too
 local function push(root: BasePart, velocity: Vector3, duration: number): Attachment
+	-- one at a time, a new push takes over from the last the way a player's Body.push does, two would fight
+	local last = movers[root]
+	if last then
+		last:Destroy()
+	end
 	local attach = Instance.new("Attachment")
 	attach.Parent = root
+	movers[root] = attach
 
 	local mover = Instance.new("LinearVelocity")
 	mover.Attachment0 = attach
@@ -159,12 +173,15 @@ local function push(root: BasePart, velocity: Vector3, duration: number): Attach
 
 	task.delay(duration, function()
 		attach:Destroy()
+		if movers[root] == attach then
+			movers[root] = nil
+		end
 	end)
 	return attach
 end
 
--- a player's own client moves its character, so the server can only exempt it and ask it to fly. either way the
--- server follows the path itself for a wall and the floor, see Knockback. drop angles it down, for the slam
+-- a player's own client moves its character, so it's exempted and asked to fly, an NPC the server pushes itself. either
+-- way the server follows the path itself for a wall and the floor, see Knockback. drop angles it down, for the slam
 local function knockback(target: Model, root: BasePart, from: BasePart, speed: number, now: number, drop: number)
 	local look = from.CFrame.LookVector
 	local flat = Vector3.new(look.X, 0, look.Z).Unit
@@ -180,14 +197,17 @@ local function knockback(target: Model, root: BasePart, from: BasePart, speed: n
 	Knockback.start(target, root, dir * speed, now, mover)
 end
 
--- a hit that doesn't knock back still moves its target along the attacker's step, as far as the attacker came in, so
--- a string doesn't walk the attacker into it
+-- straight away from whoever pushed it, as fast as the attacker came in, so a string doesn't walk the attacker into it
+-- and the two slide as one, the reference's way. right on top of it, along the pusher's look
 local function shove(target: Model, root: BasePart, from: BasePart, speed: number)
 	if speed <= 0 then
 		return
 	end
+	local away = root.Position - from.Position
 	local look = from.CFrame.LookVector
-	local dir = Vector3.new(look.X, 0, look.Z).Unit
+	local dir = if Vector3.new(away.X, 0, away.Z).Magnitude > 1e-3
+		then Vector3.new(away.X, 0, away.Z).Unit
+		else Vector3.new(look.X, 0, look.Z).Unit
 	StateService.raiseCap(target, speed)
 	local plr = Players:GetPlayerFromCharacter(target)
 	if plr then
@@ -223,7 +243,8 @@ local function resolve(
 	def: Types.AttackDef,
 	swing: Swing,
 	hitAt: number,
-	now: number
+	now: number,
+	skipped: number
 ): Types.HitResult?
 	local st = StateService.get(target)
 	local from = StateService.liveRoot(attacker)
@@ -249,7 +270,8 @@ local function resolve(
 		combat.cooldownUntil[PARRY] = 0
 		changePosture(target, Config.PARRY_POSTURE)
 		stun(attackerSt, now + Config.PARRIED_STUN)
-		-- the parrier faces the attacker, so its look sends the attacker back a step instead of on through its lunge
+		-- the parrier was pushed back on contact, see query. this sends the attacker back a step the other way instead of
+		-- on through its lunge
 		shove(attacker, from, root, Config.PARRY_RECOIL)
 		return "Parried"
 	end
@@ -260,14 +282,12 @@ local function resolve(
 		local wait = if swing.isDelayed then Config.DELAY_EXHAUST else Config.POSTURE_REGEN_DELAY
 		if not def.isGuardBreak and changePosture(target, -cost, wait) > 0 then
 			damage(target, st, def.damage * def.chip * swing.power, false, now)
-			shove(target, root, from, swing.lunge)
 			return "Blocked"
 		end
-		combat.brokenUntil = now + Config.POSTURE_BREAK_TIME
+		combat.brokenUntil = now + skipped + Config.POSTURE_BREAK_TIME
 		stun(st, combat.brokenUntil)
 		changePosture(target, Config.POSTURE_MAX, Config.POSTURE_BREAK_TIME)
 		damage(target, st, def.damage * swing.power, true, now)
-		shove(target, root, from, swing.lunge)
 		return "Broken"
 	end
 
@@ -289,7 +309,9 @@ local function resolve(
 		combat.juggleHits = if now < combat.stunnedUntil then combat.juggleHits + 1 else 1
 		scale = math.min(1, Config.JUGGLE_DECAY / combat.juggleHits)
 	end
-	local stunFor = (def.stun + bonus) * scale
+	-- a hit that skipped its hold stuns that much longer, so it ends when a held one would have and the next hit in the
+	-- string, held or not, still lands inside it
+	local stunFor = (def.stun + bonus) * scale + skipped
 	stun(st, now + stunFor)
 	if def.isHeavyStun or swing.isDelayed then
 		combat.lockedUntil = math.max(combat.lockedUntil, now + stunFor)
@@ -313,7 +335,6 @@ local function resolve(
 		knockback(target, root, from, speed, now, if swing.kind == "Slam" then math.rad(Config.SLAM_ANGLE) else 0)
 		return "Knocked"
 	end
-	shove(target, root, from, swing.lunge)
 	return "Hit"
 end
 
@@ -401,6 +422,9 @@ local function juggle(
 	if not st or not root or not from then
 		return
 	end
+	-- as far as a shove would have moved it, see isCaught
+	local look = from.CFrame.LookVector
+	local step = Vector3.new(look.X, 0, look.Z).Unit * swing.lunge * Config.LUNGE_TIME
 
 	if result == "Parried" then
 		Juggle.release(attacker, attackerSt)
@@ -412,7 +436,16 @@ local function juggle(
 		return
 	elseif swing.kind == "Launch" then
 		Juggle.hold(attacker, attackerSt, from, now, Config.LAUNCH_RISE, Config.JUGGLE_HOLD)
-		Juggle.hold(target, st, root, now, Config.LAUNCH_RISE, Config.JUGGLE_HOLD)
+		-- a break hit knocks it off instead of pinning it
+		Juggle.hold(
+			target,
+			st,
+			root,
+			now,
+			Config.LAUNCH_RISE,
+			Config.JUGGLE_HOLD,
+			if result == "Hit" then step else nil
+		)
 	elseif result == "Knocked" then
 		-- the slam spikes it down, and anything else out of the air sends it off at height
 		local wasAloft = isAloft(attacker, attackerSt, now)
@@ -424,19 +457,20 @@ local function juggle(
 		end
 	elseif now < attackerSt.combat.juggleUntil and now < st.combat.juggleUntil then
 		Juggle.hold(attacker, attackerSt, from, now, 0, Config.JUGGLE_HOLD)
-		Juggle.hold(target, st, root, now, 0, Config.JUGGLE_HOLD)
+		Juggle.hold(target, st, root, now, 0, Config.JUGGLE_HOLD, step)
 	else
 		Juggle.release(target, st)
 	end
 end
 
--- stuns and damage run from when it lands, so a held string keeps its rhythm. only the dodge and parry look back
-local function land(attacker: Model, target: Model, swing: Swing, hitAt: number, now: number)
+-- stuns and damage run from when it lands, so a held string keeps its rhythm, and skipped is how much sooner than its
+-- hold it landed. only the dodge and parry look back
+local function land(attacker: Model, target: Model, swing: Swing, hitAt: number, now: number, skipped: number)
 	local st = StateService.get(attacker)
 	if not st then
 		return
 	end
-	local result: Types.HitResult? = resolve(attacker, st, target, AttackDefs[swing.id], swing, hitAt, now)
+	local result: Types.HitResult? = resolve(attacker, st, target, AttackDefs[swing.id], swing, hitAt, now, skipped)
 	StateService.publish(target)
 	if result then
 		juggle(attacker, st, target, swing, result, now)
@@ -444,8 +478,37 @@ local function land(attacker: Model, target: Model, swing: Swing, hitAt: number,
 		NpcAnimator.result(attacker, target, result)
 	end
 	if Config.DEBUG then
-		print(swing.id, target.Name, result, math.round((now - hitAt) * 1000), "ms held")
+		print(
+			swing.id,
+			target.Name,
+			result,
+			math.round((now - hitAt) * 1000),
+			"ms held,",
+			math.round(skipped * 1000),
+			"ms skipped"
+		)
 	end
+end
+
+-- whether a parry pressed on the target's screen could still arrive by `by` and count. a hit is only held for one
+-- that could, holding it otherwise only makes it late. a stunned body can parry out of a stun that isn't locked, so a
+-- string on one with its parry ready is still held
+local function couldParry(st: CharState, def: Types.AttackDef, root: BasePart, from: BasePart, by: number): boolean
+	local combat = st.combat
+	local swing = combat.swing
+	return def.canParry
+		and isFront(root, from)
+		and isReady(st, PARRY, by)
+		and not combat.downed
+		and not combat.grip
+		and not combat.grippedBy
+		-- a stun it can't parry out of, a break or a pin, lasting past the wait
+		and not (by < combat.lockedUntil and by < combat.stunnedUntil)
+		and by >= combat.brokenUntil
+		and by >= combat.wallUntil
+		and by >= combat.floorUntil
+		-- a swing of its own it's still in by then
+		and not (swing and (not swing.endsAt or swing.endsAt > by))
 end
 
 local function query(char: Model, st: CharState, swing: Swing, now: number)
@@ -459,7 +522,7 @@ local function query(char: Model, st: CharState, swing: Swing, now: number)
 	for _ in swing.hit do
 		count += 1
 	end
-	for _, target in Hitbox.query(root, def.box) do
+	for _, target in Hitbox.query(root, def.box, swing.lunge) do
 		-- a parry clears the swing, so nothing after it lands
 		if st.combat.swing ~= swing or count >= Config.MAX_TARGETS then
 			break
@@ -469,14 +532,32 @@ local function query(char: Model, st: CharState, swing: Swing, now: number)
 		swing.hit[target] = true
 		count += 1
 
-		-- one already inside the target's parry window has nothing left to wait for, so a clean parry lands at once
-		local rewind = Ping.rewind(target)
 		local targetSt = StateService.get(target)
+		local targetRoot = StateService.liveRoot(target)
+		-- pushed the moment the hit meets it, on the step the attacker's lunge starts, so the two slide together. a hit,
+		-- a block and a parry all push it the same, the reference's way, so it can't wait for the hold to say which. a
+		-- knockback takes over from it. a dodge isn't touched, and a dash started through the hold drives the body over
+		-- it. a juggle carries its target itself
+		if
+			targetSt
+			and targetRoot
+			and not targetSt.combat.downed
+			and not (def.canDodge and now < targetSt.dash.dodgeUntil)
+			and not isCaught(st, targetSt, swing, now)
+		then
+			shove(target, targetRoot, root, swing.lunge)
+		end
+
+		-- one already inside the target's parry window has nothing left to wait for, so a clean parry lands at once, and
+		-- so does a hit on one that couldn't parry it in time anyway
+		local rewind = Ping.rewind(target)
 		local isParried = def.canParry and targetSt ~= nil and isInParry(targetSt, now)
-		if rewind > 0 and not isParried then
+		if rewind <= 0 or isParried then
+			land(char, target, swing, now, now, 0)
+		elseif targetSt and targetRoot and couldParry(targetSt, def, targetRoot, root, now + rewind) then
 			table.insert(held, { attacker = char, target = target, swing = swing, hitAt = now, landsAt = now + rewind })
 		else
-			land(char, target, swing, now, now)
+			land(char, target, swing, now, now, rewind)
 		end
 	end
 end
@@ -524,6 +605,7 @@ local function settle(char: Model, st: CharState, now: number)
 		held = swing.held,
 		power = swing.power,
 		lunge = 0,
+		hasWoundUp = false,
 		hit = {},
 	}
 	st.combat.swing = nextSwing
@@ -632,7 +714,7 @@ local function attack(
 	if picked.cooldown then
 		combat.cooldownUntil[picked.cooldown] = start + CombatDefs.cooldowns[picked.cooldown]
 	end
-	if picked.kind == "Air" then
+	if picked.kind == "Air" or picked.kind == "Slam" then
 		combat.hasAirAttacked = true
 	end
 
@@ -652,6 +734,7 @@ local function attack(
 		held = 0,
 		power = power,
 		lunge = 0,
+		hasWoundUp = false,
 		hit = {},
 	}
 	combat.swing = swing
@@ -750,7 +833,7 @@ local function step()
 		local h = held[i]
 		if now >= h.landsAt then
 			table.remove(held, i)
-			land(h.attacker, h.target, h.swing, h.hitAt, now)
+			land(h.attacker, h.target, h.swing, h.hitAt, now, 0)
 		else
 			i += 1
 		end
@@ -770,6 +853,12 @@ local function step()
 		end
 
 		local swing = combat.swing
+		-- its whoosh as the windup starts, a queued light or a follow once the swing before it ends. for everyone but
+		-- the attacker's own client, which played it already, and so is the arc below
+		if swing and not swing.hasWoundUp and now >= swing.startedAt then
+			swing.hasWoundUp = true
+			fx(char, char, swing.id, "Windup")
+		end
 		if swing then
 			advance(char, st, swing, now)
 		end
@@ -779,7 +868,7 @@ local function step()
 				if swing.lunge > 0 then
 					lunge(char, swing.lunge)
 				end
-				-- the arc it cuts, for everyone but the attacker's own client, which played it already
+				-- the arc it cuts
 				if AttackDefs[swing.id].swing then
 					fx(char, char, swing.id, "Swing")
 				end

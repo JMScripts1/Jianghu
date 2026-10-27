@@ -204,7 +204,12 @@ local function pick(
 			then { id = def.heavy, kind = "Heavy", combo = 0, cooldown = HEAVY }
 			else nil
 	elseif action == "Slam" then
-		return if isJuggling and has(def.slam) then { id = def.slam, kind = "Slam", combo = 0 } else nil
+		-- it's the juggle's air attack, one per airtime, so a slam that misses or is blocked can't be thrown again
+		return if isJuggling
+				and not hasAirAttacked
+				and has(def.slam)
+			then { id = def.slam, kind = "Slam", combo = 0 }
+			else nil
 	elseif move == "CrouchIdle" or move == "CrouchWalk" then
 		return if isReady(LAUNCH) and has(def.launch)
 			then { id = def.launch, kind = "Launch", combo = 0, cooldown = LAUNCH }

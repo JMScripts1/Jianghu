@@ -7,11 +7,20 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local AttackDefs = require(ReplicatedStorage.Shared.Combat.AttackDefs)
 local Sounds = require(ReplicatedStorage.Shared.Sounds)
 local Types = require(ReplicatedStorage.Shared.Types)
+local Blood = require(script.Parent.Blood)
 local Sfx = require(script.Parent.Sfx)
 local Vfx = require(script.Parent.Vfx)
 
 -- streaming can leave either character off this client, so both can arrive as nil
 type Play = (attacker: Model?, target: Model?, id: string, point: Vector3?, normal: Vector3?) -> ()
+
+type Bleed = Types.HitFx | "Break"
+
+-- blood drops each kind of hit throws, by the attacking weapon's hit type. anything not listed doesn't bleed
+local BLEEDS: { [Types.HitType]: { [Bleed]: number } } = {
+	Slash = { Hit = 2, HeavyHit = 4, Break = 3 },
+	Blunt = { HeavyHit = 2 },
+}
 
 -- the hand end of an R6 arm, where the weapon sits
 local HAND = CFrame.new(0, -1, 0)
@@ -34,6 +43,7 @@ local ANGLES: { [Types.SwingAngle]: CFrame } = {
 local SPINS: { [Types.HitType]: true } = { Slash = true }
 
 -- typed so the old solver takes them as keys of the shared sounds
+local PARRY: Types.SharedFx = "Parry"
 local BREAK: Types.SharedFx = "Break"
 local DELAY: Types.SharedFx = "Delay"
 local LEVEL: Types.SwingAngle = "Horizontal"
@@ -57,15 +67,22 @@ local function facing(at: Vector3, from: BasePart, to: BasePart): CFrame
 	return CFrame.lookAt(at, at + look)
 end
 
+-- out of the torso, thrown away from the attacker
+local function bleed(target: Model, from: BasePart, hitType: Types.HitType, kind: Bleed)
+	local count = BLEEDS[hitType][kind]
+	local body = target:FindFirstChild("Torso")
+	if count and body and body:IsA("BasePart") then
+		Blood.spill(body, from.Position, count)
+	end
+end
+
 local function strike(attacker: Model?, target: Model?, id: string, slot: Types.HitFx)
 	local from, to = rootOf(attacker), rootOf(target)
 	local def = AttackDefs[id]
-	if not from or not to or not def then
+	if not target or not from or not to or not def then
 		return
 	end
-	local cf = if slot == "Parry"
-		then facing(from.Position:Lerp(to.Position, 0.5), from, to)
-		else facing(to.Position, from, to)
+	local cf = facing(to.Position, from, to)
 	if slot == "Block" then
 		cf += cf.LookVector * GUARD_OUT
 	end
@@ -74,14 +91,32 @@ local function strike(attacker: Model?, target: Model?, id: string, slot: Types.
 	end
 	Vfx.at(Vfx.template(def.hitType, slot), cf)
 	Sfx.at(Sounds.Hits[def.hitType][slot], cf.Position)
+	bleed(target, from, def.hitType, slot)
 end
 
-local function broken(attacker: Model?, target: Model?)
+-- halfway between the two, the same for every weapon
+local function parried(attacker: Model?, target: Model?)
 	local from, to = rootOf(attacker), rootOf(target)
-	if from and to then
-		local cf = facing(to.Position, from, to)
-		Vfx.at(Vfx.template("Shared", BREAK), cf)
-		Sfx.at(Sounds.Shared[BREAK], cf.Position)
+	if not from or not to then
+		return
+	end
+	local cf = facing(from.Position:Lerp(to.Position, 0.5), from, to)
+	Vfx.at(Vfx.template("Shared", PARRY), cf)
+	Sfx.at(Sounds.Shared[PARRY], cf.Position)
+end
+
+-- it bleeds from whatever broke it
+local function broken(attacker: Model?, target: Model?, id: string)
+	local from, to = rootOf(attacker), rootOf(target)
+	local def = AttackDefs[id]
+	if not target or not from or not to then
+		return
+	end
+	local cf = facing(to.Position, from, to)
+	Vfx.at(Vfx.template("Shared", BREAK), cf)
+	Sfx.at(Sounds.Shared[BREAK], cf.Position)
+	if def then
+		bleed(target, from, def.hitType, "Break")
 	end
 end
 
@@ -110,6 +145,22 @@ function CombatFx.delay(char: Model, id: string)
 	end
 end
 
+-- an empty slot or list has nothing to play
+local function isEmpty(ids: Types.SoundSlot): boolean
+	return if type(ids) == "table" then #ids == 0 else ids == ""
+end
+
+-- the whoosh of every swing as its windup starts, from its hit type's own or the generic ones. played the same two ways
+-- the delay is
+function CombatFx.windup(char: Model, id: string)
+	local def = AttackDefs[id]
+	local root = rootOf(char)
+	if def and root then
+		local own = Sounds.Swings[def.hitType]
+		Sfx.at(if isEmpty(own) then Sounds.GenericSwing else own, root.Position)
+	end
+end
+
 -- the arc an attack cuts as it comes through, riding on the root so it goes along with the lunge. played the same two
 -- ways the delay is, and whether it lands or not
 function CombatFx.swing(char: Model, id: string)
@@ -133,8 +184,8 @@ local PLAYS: { [Types.CombatFx]: Play } = {
 	Blocked = function(attacker, target, id)
 		strike(attacker, target, id, "Block")
 	end,
-	Parried = function(attacker, target, id)
-		strike(attacker, target, id, "Parry")
+	Parried = function(attacker, target)
+		parried(attacker, target)
 	end,
 	Broken = broken,
 	WallSlam = function(_, _, _, point, normal)
@@ -146,6 +197,11 @@ local PLAYS: { [Types.CombatFx]: Play } = {
 	Delay = function(attacker, _, id)
 		if attacker and attacker ~= player.Character then
 			CombatFx.delay(attacker, id)
+		end
+	end,
+	Windup = function(attacker, _, id)
+		if attacker and attacker ~= player.Character then
+			CombatFx.windup(attacker, id)
 		end
 	end,
 	Swing = function(attacker, _, id)

@@ -13,6 +13,10 @@ type Ctx = Context.Ctx
 
 type Push = { velocity: Vector3, untilAt: number }
 
+-- the juggle hold on the up axis only, or every axis for a pinned body
+local UP = Vector3.new(0, Config.JUGGLE_FORCE, 0)
+local PINNED = Vector3.one * Config.JUGGLE_FORCE
+
 -- whatever the server does to this body: knockback, shoves, pins, the juggle hold, the ragdoll. this client owns the
 -- character's physics, so the server asks and this carries it out
 local Body = {}
@@ -23,10 +27,14 @@ local pinAt: CFrame? = nil
 -- held in the air by a juggle until this. riseUntil lets the hold work off the ground while the uppercut lifts, see Juggle
 local juggleUntil = 0
 local riseUntil = 0
--- a rise the server asked for, taken on the next step where the body's height is known
+-- a rise and a step the server asked for, taken on the next step where the body's position is known
 local pendingRise: number? = nil
+local pendingStep: Vector3? = nil
 -- the height the juggle settled at, read on its first held step
 local holdY: number? = nil
+-- where a hit pinned the body on the flat, held on every axis until pinUntil
+local holdFlat: Vector3? = nil
+local pinUntil = 0
 local isRagdolled = false
 -- held still through a grip or a pin, see pose
 local isAnchored = false
@@ -71,15 +79,24 @@ local function move(c: Ctx, now: number)
 
 	-- the uppercut moves the hold up by its rise, then a juggle keeps the body at that height with the hold mover,
 	-- which a lunge into the target can't push past. the rise works from the ground, after it only in Fall or a dash,
-	-- so a dash round the target stays level and a jump or a wall takes over. so does the slam's push
+	-- so a dash round the target stays level and a jump or a wall takes over. so does the slam's push. a hit's target
+	-- is pinned on the flat too through its stun, moved along by the attacker's step, see Juggle
 	local rise = pendingRise
 	if rise then
 		pendingRise = nil
 		holdY = c.root.Position.Y + rise
 		riseUntil = now + Config.LAUNCH_TIME
 	end
+	local step = pendingStep
+	if step then
+		pendingStep = nil
+		holdFlat = c.root.Position + step
+	end
 	if now >= juggleUntil then
 		holdY = nil
+	end
+	if now >= pinUntil then
+		holdFlat = nil
 	end
 	local isDriven = push ~= nil and (push :: Push).velocity.Y ~= 0
 	local isHolding = now < juggleUntil
@@ -89,8 +106,13 @@ local function move(c: Ctx, now: number)
 		holdY = c.root.Position.Y
 	end
 	local y = holdY
+	local flat = if isHolding then holdFlat else nil
 	if isHolding and y then
-		c.hold.Position = Vector3.new(0, y, 0)
+		c.hold.Position = if flat then Vector3.new(flat.X, y, flat.Z) else Vector3.new(0, y, 0)
+	end
+	local axes = if flat then PINNED else UP
+	if c.hold.MaxAxesForce ~= axes then
+		c.hold.MaxAxesForce = axes
 	end
 	if c.hold.Enabled ~= isHolding then
 		c.hold.Enabled = isHolding
@@ -134,7 +156,10 @@ function Body.load(c: Ctx)
 	juggleUntil = 0
 	riseUntil = 0
 	pendingRise = nil
+	pendingStep = nil
 	holdY = nil
+	holdFlat = nil
+	pinUntil = 0
 	isRagdolled = false
 	isAnchored = false
 	isRooted = false
@@ -158,12 +183,16 @@ Remotes.Pin.OnClientEvent:Connect(function(at: CFrame)
 	pinAt = at
 end)
 
--- the server holds both fighters in a juggle, see Juggle. a rise throws the body up first, and 0 for both lets go
-Remotes.Juggle.OnClientEvent:Connect(function(rise: number, duration: number)
-	juggleUntil = os.clock() + duration
+-- the server holds both fighters in a juggle, see Juggle. a rise throws the body up first, a step pins a hit's target
+-- for pinFor, and 0 for both times lets go
+Remotes.Juggle.OnClientEvent:Connect(function(rise: number, duration: number, step: Vector3?, pinFor: number)
+	local now = os.clock()
+	juggleUntil = now + duration
+	pinUntil = now + pinFor
 	if rise > 0 then
 		pendingRise = rise
 	end
+	pendingStep = step
 end)
 
 return Body

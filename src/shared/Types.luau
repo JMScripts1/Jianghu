@@ -141,9 +141,9 @@ export type AttackId = string
 -- Knocked is a hit that knocked its target back
 export type HitResult = "Dodged" | "Parried" | "Blocked" | "Broken" | "Hit" | "Knocked"
 
--- what CombatFx carries: a hit's result, a swing being delayed or coming through, or a knockback pinning its body to a
--- wall or the floor
-export type CombatFx = HitResult | "Delay" | "Swing" | "WallSlam" | "FloorSlam"
+-- what CombatFx carries: a hit's result, a swing winding up, being delayed or coming through, or a knockback pinning
+-- its body to a wall or the floor
+export type CombatFx = HitResult | "Windup" | "Delay" | "Swing" | "WallSlam" | "FloorSlam"
 
 -- the attacking weapon's kind of hit, it picks the effects and sounds of every hit it lands, blocked and parried ones too
 export type HitType = "Blunt" | "Slash"
@@ -151,9 +151,14 @@ export type HitType = "Blunt" | "Slash"
 -- the hand an attack swings with, where its delay's glare shows
 export type Hand = "Right" | "Left" | "Both"
 
--- each hit type has its own of these, and every weapon shares the rest
-export type HitFx = "Hit" | "HeavyHit" | "Block" | "Parry"
-export type SharedFx = "Break" | "WallSlam" | "FloorSlam" | "Delay"
+-- each hit type has its own of these, and every weapon shares the rest. a parry sounds and looks the same whatever was
+-- swung
+export type HitFx = "Hit" | "HeavyHit" | "Block"
+export type SharedFx = "Parry" | "Break" | "WallSlam" | "FloorSlam" | "Delay"
+
+-- one sound id, or several with one picked at random each time, like a Folder of variants in an effect slot. an empty
+-- one plays nothing
+export type SoundSlot = string | { string }
 
 -- the tilts a swing effect comes in, seen from behind the attacker. Right and Left are the side held high, so
 -- DiagonalRight runs / and DiagonalLeft runs \. see CombatFx for the angles
@@ -218,6 +223,11 @@ export type AttackDef = {
 export type AttackSpec = {
 	-- a follow plays on in its first strike's animation and leaves this out
 	anim: string?,
+	-- the frame its hit lands on and its animation's length in frames at 60, read off the animation editor. they make
+	-- windup, active and recovery, see AttackDefs.timing. a follow counts from the start of the same animation and its
+	-- first strike leaves length out
+	contact: number?,
+	length: number?,
 	windup: number?,
 	delayAt: number?,
 	active: number?,

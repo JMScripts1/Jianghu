@@ -144,7 +144,9 @@ function Air.update(c: Ctx, dt: number): Types.MoveState?
 		local want = input.Unit
 		c.heading = if c.heading == Vector3.zero then want else Context.turn(c.heading, want, TURN_RATE * dt)
 	end
-	c.hum:Move(c.heading)
+	-- held up in a juggle it goes only where it's steered. the heading it carries is whatever way it was moving as it
+	-- left the ground, next to nothing on a launch straight up, and would walk both fighters off each other
+	c.hum:Move(if c.isHeldUp then input else c.heading)
 	c.hum.WalkSpeed = math.min(math.max(c.momentum, Config.WALK_SPEED), CombatController.speedCap(c))
 	return nil
 end

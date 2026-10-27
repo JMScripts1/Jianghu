@@ -20,26 +20,32 @@ local Movement: { [Types.SoundName]: string } = {
 }
 
 -- from the attacking weapon's hit type, the same split as the effects in assets/Vfx.rbxm
-local Hits: { [Types.HitType]: { [Types.HitFx]: string } } = {
+local Hits: { [Types.HitType]: { [Types.HitFx]: Types.SoundSlot } } = {
 	Blunt = {
 		Hit = "",
 		HeavyHit = "",
 		Block = "",
-		Parry = "",
 	},
 	Slash = {
 		Hit = "",
 		HeavyHit = "",
 		Block = "",
-		Parry = "",
 	},
 }
 
--- Delay is the charge a held swing makes
-local Shared: { [Types.SharedFx]: string } = {
+-- the whoosh of every swing as it comes through, hit or miss, by the attacking weapon's hit type. an empty one plays
+-- GenericSwing
+local Swings: { [Types.HitType]: Types.SoundSlot } = {
+	Blunt = { "", "", "" },
+	Slash = "",
+}
+
+-- the same for every weapon. Delay is the charge a held swing makes
+local Shared: { [Types.SharedFx]: Types.SoundSlot } = {
+	Parry = { "rbxassetid://74187740395150", "rbxassetid://130145352629864", "rbxassetid://95707278240429" },
 	Break = "",
-	WallSlam = "",
-	FloorSlam = "",
+	WallSlam = "rbxassetid://126221270237387",
+	FloorSlam = "rbxassetid://113950757735761",
 	Delay = "",
 }
 
@@ -51,4 +57,15 @@ return table.freeze({
 	Movement = table.freeze(Movement),
 	Hits = table.freeze(Hits),
 	Shared = table.freeze(Shared),
+	Swings = table.freeze(Swings),
+	-- any hit type's swing with none of its own
+	GenericSwing = "" :: Types.SoundSlot,
+	-- once at the body when a hit bleeds, the same for every weapon
+	BloodSpill = {
+		"",
+		"",
+		"",
+	} :: Types.SoundSlot,
+	-- where each drop lands, several a hit, so a quiet one
+	BloodLand = "" :: Types.SoundSlot,
 })

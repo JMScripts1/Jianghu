@@ -93,9 +93,11 @@ function Sfx.state(root: BasePart, from: Types.MoveState, to: Types.MoveState, i
 	end
 end
 
--- played once where something happened and left behind, for a hit, a pin or a delay
-function Sfx.at(id: string, at: Vector3)
-	if id == "" then
+-- played once where something happened and left behind, for a hit, a pin or a delay. a slot with several ids plays one
+-- of them at random
+function Sfx.at(ids: Types.SoundSlot, at: Vector3)
+	local id = if type(ids) == "table" then ids[math.random(math.max(1, #ids))] else ids
+	if not id or id == "" then
 		return
 	end
 	local holder = Instance.new("Attachment")

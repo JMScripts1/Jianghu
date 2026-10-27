@@ -26,6 +26,8 @@ export type Swing = {
 	power: number,
 	-- studs a second pushed forward at the hit, set with the hit time
 	lunge: number,
+	-- its windup has been sent out, see CombatService.step
+	hasWoundUp: boolean,
 	hit: { [Model]: true },
 }
 

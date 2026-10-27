@@ -43,14 +43,45 @@ local function frame(swingTime: number, def: Types.AttackDef): number
 	return math.round(swingTime * def.speed * FPS)
 end
 
+-- the last keyframe is where the animation ends
+local function length(seq: KeyframeSequence): number
+	local last = 0
+	for _, kf in seq:GetKeyframes() do
+		if kf:IsA("Keyframe") then
+			last = math.max(last, kf.Time)
+		end
+	end
+	return last
+end
+
+-- a chain that ends a frame or more off its animation leaves it cut short or standing still. checked with or without
+-- Hit keyframes, and it says the length to type
+local function checkLength(id: Types.AttackId, seq: KeyframeSequence)
+	local def = AttackDefs[id]
+	local ends = 0
+	local strike: Types.AttackId? = id
+	while strike do
+		local s = AttackDefs[strike]
+		ends += s.windup + s.active + s.recovery
+		strike = s.follow
+	end
+	local total = length(seq)
+	local frames = math.round(total * FPS)
+	if math.abs(ends * def.speed - total) > SLACK then
+		warn(`{id} ends on frame {frame(ends, def)}, its animation is {frames} frames. set length = {frames}`)
+	end
+end
+
 -- the nth Hit belongs to the nth strike of the chain. a hit only has to land inside its strike's active window, the
--- box opens a few frames early on purpose
+-- box opens a few frames early on purpose. a miss says the contact frame to type, a follow counts from the start of
+-- the same animation too
 local function check(id: Types.AttackId, seq: KeyframeSequence)
 	local def = AttackDefs[id]
 	local delay = times(seq, DELAY)[1]
 	local delayAt = def.delayAt
 	if delay and delayAt and math.abs(delay / def.speed - delayAt) > SLACK then
-		warn(`{id} has its Delay on frame {math.round(delay * FPS)}, its delayAt is frame {frame(delayAt, def)}`)
+		local at = math.round(delay * FPS)
+		warn(`{id} has its Delay on frame {at}, its delayAt is frame {frame(delayAt, def)}. set delayAt = {at} / 60`)
 	end
 
 	local hits = times(seq, HIT)
@@ -65,8 +96,10 @@ local function check(id: Types.AttackId, seq: KeyframeSequence)
 		local from, to = at + s.windup, at + s.windup + s.active
 		local hitAt = hit / s.speed
 		if hitAt < from - SLACK or hitAt > to + SLACK then
-			local opens, closes = frame(from, s), frame(to, s)
-			warn(`{strike} hits on frame {math.round(hit * FPS)}, its box is open frames {opens} to {closes}`)
+			local opens, closes, contact = frame(from, s), frame(to, s), math.round(hit * FPS)
+			warn(
+				`{strike} hits on frame {contact}, its box is open frames {opens} to {closes}. set contact = {contact}`
+			)
 		end
 		at = to + s.recovery
 		strike = s.follow
@@ -104,6 +137,7 @@ task.spawn(function()
 			seqs[def.anim] = result
 		end
 
+		checkLength(id, seq)
 		if #times(seq, HIT) == 0 then
 			unmarked += 1
 		else

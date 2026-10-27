@@ -105,7 +105,8 @@ local function parry(model: Model, d: Dummy, st: StateService.CharState, now: nu
 			continue
 		end
 
-		if hitAt > now and hitAt - now <= PARRY_LEAD and Hitbox.reaches(root, AttackDefs[swing.id].box, model) then
+		local def = AttackDefs[swing.id]
+		if hitAt > now and hitAt - now <= PARRY_LEAD and Hitbox.reaches(root, def.box, def.lunge or 0, model) then
 			d.parried = swing
 			-- a tap: letting go doesn't cut the window short
 			CombatService.act(model, "Block")
